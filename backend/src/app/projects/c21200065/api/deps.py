@@ -13,15 +13,14 @@ from app.projects.c21200065.infra.clients.storage import storage_client
 from app.projects.c21200065.infra.repositories.file_orm_repo import FileORMRepository
 from app.projects.c21200065.infra.repositories.geo_event_orm_repo import GeoEventORMRepository
 from app.projects.c21200065.infra.repositories.geo_event_repo import GeoEventRepository
-from app.projects.c21200065.infra.repositories.refresh_token_repo import RefreshTokenRepository
-from app.projects.c21200065.infra.repositories.user_repo import UserRepository
+from app.projects.c21200065.infra.repositories.auth_orm_repo import RefreshTokenORMRepository, UserORMRepository
 from app.projects.c21200065.infra.settings import settings
 
 security = HTTPBearer()
 
-_user_repo = UserRepository()
+_user_repo = UserORMRepository()
 _google_client = GoogleOAuthClient()
-_refresh_token_repo = RefreshTokenRepository()
+_refresh_token_repo = RefreshTokenORMRepository()
 _auth_service = AuthService(_user_repo, _google_client, _refresh_token_repo, settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
 

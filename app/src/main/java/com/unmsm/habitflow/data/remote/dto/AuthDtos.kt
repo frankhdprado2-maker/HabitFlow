@@ -11,11 +11,8 @@ data class LoginRequest(
 
 @JsonClass(generateAdapter = true)
 data class RegisterRequest(
-    val name: String,
     val email: String,
-    val password: String,
-    val username: String? = null,
-    val goal: String? = null
+    val password: String
 )
 
 @JsonClass(generateAdapter = true)

@@ -2,11 +2,20 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
 from app.core.discovery import load_projects, registry
+from app.projects.c21200065.infra.db.postgres import engine
+from app.projects.c21200065.infra.orm import AuthRefreshTokenORM, AuthUserORM, FileORM, GeoEventORM
+from app.projects.c21200065.infra.orm.base import Base
 
 app = FastAPI(title="Platform API", version="1.0.0")
 
 print("STARTING APP")
 load_projects(app)
+
+
+@app.on_event("startup")
+async def create_database_tables():
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

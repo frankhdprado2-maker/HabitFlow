@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,7 +51,7 @@ fun SplashScreen(padding: PaddingValues, onDone: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text("HabitFlow", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-        Text("Hábitos universitarios con voz e IA")
+        Text("Habitos universitarios con voz e IA")
     }
 }
 
@@ -61,12 +62,12 @@ fun OnboardingScreen(padding: PaddingValues, onFinish: () -> Unit) {
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            Text("Organiza tu día", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text("Organiza tu dia", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Crea rutinas de estudio, salud y productividad con recordatorios claros.")
             Text("No pierdas tu racha", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Text("La app guarda avances offline y sincroniza cuando vuelve la conexión.")
+            Text("La app guarda avances offline y sincroniza cuando vuelve la conexion.")
             Text("Habla con HabitFlow", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Text("Di “ya corrí 30 minutos” o pregunta qué hábitos faltan hoy.")
+            Text("Di ya corri 30 minutos o pregunta que habitos faltan hoy.")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton(onClick = onFinish, modifier = Modifier.weight(1f)) { Text("Saltar") }
@@ -94,21 +95,23 @@ fun LoginScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Text("Bienvenido", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Text("Inicia sesión para continuar tu racha.")
+        Text("Inicia sesion para continuar tu racha.")
         VerticalSpacer()
         FormField(state.email, "Email", viewModel::updateEmail)
         VerticalSpacer()
-        androidx.compose.material3.OutlinedTextField(
+        OutlinedTextField(
             value = state.password,
             onValueChange = viewModel::updatePassword,
-            label = { Text("Contraseña") },
+            label = { Text("Contrasena") },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth()
         )
-        if (state.error != null) Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+        if (state.error != null) {
+            Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+        }
         VerticalSpacer()
-        PrimaryAction(if (state.loading) "Entrando..." else "Iniciar sesión", viewModel::login)
+        PrimaryAction(if (state.loading) "Entrando..." else "Iniciar sesion", viewModel::login)
         Button(
             onClick = {
                 scope.launch {
@@ -124,7 +127,7 @@ fun LoginScreen(
         ) {
             Text("Continuar con Google")
         }
-        TextButton(onClick = onRecover) { Text("Recuperar contraseña") }
+        TextButton(onClick = onRecover) { Text("Recuperar contrasena") }
         TextButton(onClick = onRegister) { Text("Crear cuenta") }
     }
 }
@@ -161,9 +164,11 @@ private suspend fun signInWithGoogle(
             onError("No se pudo obtener el token de Google.")
         }
     } catch (error: GetCredentialException) {
-        onError("Inicio con Google cancelado o no disponible.")
+        val reason = error.javaClass.simpleName.ifBlank { "GetCredentialException" }
+        onError("Google no disponible ($reason). Revisa OAuth Android SHA-1.")
     } catch (error: Throwable) {
-        onError("No se pudo iniciar sesión con Google.")
+        val reason = error.javaClass.simpleName.ifBlank { "Error" }
+        onError("No se pudo iniciar sesion con Google ($reason).")
     }
 }
 
@@ -181,7 +186,7 @@ fun RegisterScreen(
         modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Registro · paso ${state.step}/3", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("Registro - paso ${state.step}/3", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         when (state.step) {
             1 -> {
                 FormField(state.name, "Nombre completo", viewModel::updateName)
@@ -189,26 +194,34 @@ fun RegisterScreen(
                 FormField(state.username, "Username", viewModel::updateUsername)
             }
             2 -> {
-                FormField(state.email, "Email universitario", viewModel::updateEmail)
+                FormField(state.email, "Email", viewModel::updateEmail)
                 VerticalSpacer()
-                androidx.compose.material3.OutlinedTextField(
+                OutlinedTextField(
                     value = state.password,
                     onValueChange = viewModel::updatePassword,
-                    label = { Text("Contraseña") },
+                    label = { Text("Contrasena") },
                     visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
-            else -> FormField(state.goal, "Objetivo principal", viewModel::updateGoal)
+            else -> {
+                Text("Cuenta: ${state.email}", style = MaterialTheme.typography.bodyMedium)
+                VerticalSpacer()
+                FormField(state.goal, "Objetivo principal", viewModel::updateGoal)
+            }
         }
-        if (state.error != null) Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+        if (state.error != null) {
+            Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+        }
         VerticalSpacer()
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(onClick = viewModel::previousStep, enabled = state.step > 1, modifier = Modifier.weight(1f)) { Text("Atrás") }
+            TextButton(onClick = viewModel::previousStep, enabled = state.step > 1, modifier = Modifier.weight(1f)) { Text("Atras") }
             Button(
                 onClick = { if (state.step < 3) viewModel.nextStep() else viewModel.register() },
+                enabled = !state.loading,
                 modifier = Modifier.weight(1f)
-            ) { Text(if (state.step < 3) "Siguiente" else "Crear") }
+            ) { Text(if (state.loading) "Creando..." else if (state.step < 3) "Siguiente" else "Crear") }
         }
     }
 }
@@ -216,8 +229,8 @@ fun RegisterScreen(
 @Composable
 fun RecoverPasswordScreen(padding: PaddingValues, onDone: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.Center) {
-        Text("Recuperar contraseña", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("Ingresa tu correo y te enviaremos un enlace de recuperación.")
+        Text("Recuperar contrasena", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("Ingresa tu correo y te enviaremos un enlace de recuperacion.")
         VerticalSpacer()
         FormField("", "Email", {})
         VerticalSpacer()
@@ -229,7 +242,7 @@ fun RecoverPasswordScreen(padding: PaddingValues, onDone: () -> Unit) {
 fun VerifyEmailScreen(padding: PaddingValues, onDone: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.Center) {
         Text("Verifica tu email", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("Código de 4 dígitos")
+        Text("Codigo de 4 digitos")
         VerticalSpacer()
         FormField("", "1234", {})
         VerticalSpacer()

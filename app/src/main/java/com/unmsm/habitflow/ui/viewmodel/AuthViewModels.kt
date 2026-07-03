@@ -26,24 +26,25 @@ class LoginViewModel @Inject constructor(
 
     fun login() {
         val current = state.value
-        if (current.email.isBlank() || current.password.isBlank()) {
-            showError("Ingresa tu email y contraseña.")
+        if (!isEmailValid(current.email) || current.password.isBlank()) {
+            showError("Ingresa un email valido y tu contrasena.")
             return
         }
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            when (val result = authRepository.login(state.value.email, state.value.password)) {
+            when (authRepository.login(state.value.email, state.value.password)) {
                 is AppResult.Success -> _state.update { it.copy(loading = false, loggedIn = true) }
-                is AppResult.Error -> _state.update { it.copy(loading = false, error = "Credenciales inválidas o servidor no disponible.") }
+                is AppResult.Error -> _state.update { it.copy(loading = false, error = "Credenciales invalidas o servidor no disponible.") }
             }
         }
     }
 
     fun googleLogin(idToken: String) {
         viewModelScope.launch {
+            _state.update { it.copy(loading = true, error = null) }
             when (val result = authRepository.googleLogin(idToken)) {
-                is AppResult.Success -> _state.update { it.copy(loggedIn = true, error = null) }
-                is AppResult.Error -> _state.update { it.copy(error = result.message) }
+                is AppResult.Success -> _state.update { it.copy(loading = false, loggedIn = true, error = null) }
+                is AppResult.Error -> _state.update { it.copy(loading = false, error = result.message) }
             }
         }
     }
@@ -56,18 +57,28 @@ class RegisterViewModel @Inject constructor(
     private val _state = MutableStateFlow(RegisterUiState())
     val state: StateFlow<RegisterUiState> = _state
 
-    fun updateName(value: String) = _state.update { it.copy(name = value) }
-    fun updateUsername(value: String) = _state.update { it.copy(username = value) }
-    fun updateEmail(value: String) = _state.update { it.copy(email = value) }
-    fun updatePassword(value: String) = _state.update { it.copy(password = value) }
-    fun updateGoal(value: String) = _state.update { it.copy(goal = value) }
-    fun nextStep() = _state.update { it.copy(step = (it.step + 1).coerceAtMost(3)) }
-    fun previousStep() = _state.update { it.copy(step = (it.step - 1).coerceAtLeast(1)) }
+    fun updateName(value: String) = _state.update { it.copy(name = value, error = null) }
+    fun updateUsername(value: String) = _state.update { it.copy(username = value, error = null) }
+    fun updateEmail(value: String) = _state.update { it.copy(email = value, error = null) }
+    fun updatePassword(value: String) = _state.update { it.copy(password = value, error = null) }
+    fun updateGoal(value: String) = _state.update { it.copy(goal = value, error = null) }
+
+    fun nextStep() {
+        val message = stepError(state.value)
+        if (message != null) {
+            _state.update { it.copy(error = message) }
+            return
+        }
+        _state.update { it.copy(step = (it.step + 1).coerceAtMost(3), error = null) }
+    }
+
+    fun previousStep() = _state.update { it.copy(step = (it.step - 1).coerceAtLeast(1), error = null) }
 
     fun register() {
         val current = state.value
-        if (current.name.isBlank() || current.email.isBlank() || current.password.isBlank()) {
-            _state.update { it.copy(error = "Completa nombre, email y contraseña.") }
+        val message = finalError(current)
+        if (message != null) {
+            _state.update { it.copy(error = message) }
             return
         }
         viewModelScope.launch {
@@ -78,4 +89,28 @@ class RegisterViewModel @Inject constructor(
             }
         }
     }
+
+    private fun stepError(state: RegisterUiState): String? =
+        when (state.step) {
+            1 -> if (state.name.trim().length < 2) "Ingresa tu nombre completo." else null
+            2 -> accountError(state)
+            else -> null
+        }
+
+    private fun finalError(state: RegisterUiState): String? =
+        when {
+            state.name.trim().length < 2 -> "Ingresa tu nombre completo."
+            accountError(state) != null -> accountError(state)
+            else -> null
+        }
+
+    private fun accountError(state: RegisterUiState): String? =
+        when {
+            !isEmailValid(state.email) -> "Ingresa un email valido, por ejemplo nombre@gmail.com."
+            state.password.length < 6 -> "La contrasena debe tener al menos 6 caracteres."
+            else -> null
+        }
 }
+
+private fun isEmailValid(value: String): Boolean =
+    value.trim().matches(Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"))
