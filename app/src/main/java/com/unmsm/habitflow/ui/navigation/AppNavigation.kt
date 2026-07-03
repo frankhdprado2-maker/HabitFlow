@@ -40,6 +40,7 @@ sealed class Route(val path: String) {
     data object Achievements : Route("achievements")
     data object DeleteAccount : Route("delete_account")
     data object Voice : Route("voice")
+    data object ManualHabit : Route("manual_habit")
     data object HabitDetail : Route("habit/{habitId}") {
         fun create(habitId: String) = "habit/$habitId"
     }
@@ -97,6 +98,7 @@ fun HabitFlowApp() {
                     padding = padding,
                     onHabit = { navController.navigate(Route.HabitDetail.create(it)) },
                     onVoice = { navController.navigate(Route.Voice.path) },
+                    onManual = { navController.navigate(Route.ManualHabit.path) },
                     onNotifications = { navController.navigate(Route.Notifications.path) }
                 )
             }
@@ -126,7 +128,8 @@ fun HabitFlowApp() {
             }
             composable(Route.Achievements.path) { AchievementsScreen(padding) }
             composable(Route.DeleteAccount.path) { DeleteAccountScreen(padding) { navController.popBackStack(Route.Login.path, false) } }
-            composable(Route.Voice.path) { VoiceScreen(padding) }
+            composable(Route.Voice.path) { VoiceScreen(padding, onManual = { navController.navigate(Route.ManualHabit.path) }) }
+            composable(Route.ManualHabit.path) { ManualHabitScreen(padding, onDone = { navController.popBackStack() }) }
         }
     }
 }

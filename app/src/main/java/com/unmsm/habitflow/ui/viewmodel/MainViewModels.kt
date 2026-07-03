@@ -13,6 +13,7 @@ import com.unmsm.habitflow.ui.state.AchievementsUiState
 import com.unmsm.habitflow.ui.state.HabitDetailUiState
 import com.unmsm.habitflow.ui.state.HistoryUiState
 import com.unmsm.habitflow.ui.state.HomeUiState
+import com.unmsm.habitflow.ui.state.ManualHabitUiState
 import com.unmsm.habitflow.ui.state.NotificationsUiState
 import com.unmsm.habitflow.ui.state.ProfileUiState
 import com.unmsm.habitflow.ui.state.SettingsUiState
@@ -211,5 +212,37 @@ class VoiceViewModel @Inject constructor(
             },
             onError = { error -> _state.update { it.copy(listening = false, error = error) } }
         )
+    }
+}
+
+@HiltViewModel
+class ManualHabitViewModel @Inject constructor(
+    private val habitRepository: HabitRepository
+) : ViewModel() {
+    private val _state = MutableStateFlow(ManualHabitUiState())
+    val state: StateFlow<ManualHabitUiState> = _state
+
+    fun updateName(value: String) = _state.update { it.copy(name = value, error = null) }
+    fun updateCategory(value: String) = _state.update { it.copy(category = value, error = null) }
+    fun updateFrequency(value: String) = _state.update { it.copy(frequency = value, error = null) }
+    fun updateReminderTime(value: String) = _state.update { it.copy(reminderTime = value, error = null) }
+
+    fun save() {
+        val current = state.value
+        if (current.name.trim().length < 2) {
+            _state.update { it.copy(error = "Escribe el nombre del habito.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(loading = true, error = null) }
+            habitRepository.createHabit(
+                name = current.name.trim(),
+                icon = current.name.trim().take(2).uppercase(),
+                frequency = current.frequency.ifBlank { "Diario" },
+                time = current.reminderTime.ifBlank { "Sin hora" },
+                category = current.category.ifBlank { "General" }
+            )
+            _state.update { it.copy(loading = false, saved = true) }
+        }
     }
 }

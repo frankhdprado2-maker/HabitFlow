@@ -82,3 +82,13 @@ data class VoiceUiState(
     val response: String = "",
     val error: String? = null
 )
+
+data class ManualHabitUiState(
+    val name: String = "",
+    val category: String = "General",
+    val frequency: String = "Diario",
+    val reminderTime: String = "Sin hora",
+    val loading: Boolean = false,
+    val saved: Boolean = false,
+    val error: String? = null
+)

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.AssistChip
@@ -31,6 +32,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -51,6 +53,7 @@ import com.unmsm.habitflow.ui.viewmodel.AchievementsViewModel
 import com.unmsm.habitflow.ui.viewmodel.HabitDetailViewModel
 import com.unmsm.habitflow.ui.viewmodel.HistoryViewModel
 import com.unmsm.habitflow.ui.viewmodel.HomeViewModel
+import com.unmsm.habitflow.ui.viewmodel.ManualHabitViewModel
 import com.unmsm.habitflow.ui.viewmodel.NotificationsViewModel
 import com.unmsm.habitflow.ui.viewmodel.ProfileViewModel
 import com.unmsm.habitflow.ui.viewmodel.SettingsViewModel
@@ -63,6 +66,7 @@ fun HomeScreen(
     padding: PaddingValues,
     onHabit: (String) -> Unit,
     onVoice: () -> Unit,
+    onManual: () -> Unit,
     onNotifications: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
@@ -79,6 +83,7 @@ fun HomeScreen(
                     Text("Tu progreso de hoy: ${state.completedToday}/${state.habits.size} hábitos")
                 }
                 Row {
+                    IconButton(onClick = onManual) { Icon(Icons.Default.Add, "Agregar") }
                     IconButton(onClick = onNotifications) { Icon(Icons.Default.Notifications, "Notificaciones") }
                     IconButton(onClick = { viewModel.listen(); onVoice() }) { Icon(Icons.Default.Mic, "Voz") }
                 }
@@ -107,7 +112,12 @@ fun HomeScreen(
         }
         item { SectionTitle("Hábitos de hoy") }
         if (state.habits.isEmpty()) {
-            item { Text("Aun no tienes habitos. Usa el microfono para registrar uno por voz.") }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Aun no tienes habitos. Usa el microfono o crea uno manualmente.")
+                    Button(onClick = onManual, modifier = Modifier.fillMaxWidth()) { Text("Agregar habito manual") }
+                }
+            }
         }
         items(state.habits) { habit ->
             HabitRow(
@@ -324,16 +334,93 @@ fun DeleteAccountScreen(padding: PaddingValues, onDeleted: () -> Unit) {
 }
 
 @Composable
-fun VoiceScreen(padding: PaddingValues, viewModel: VoiceViewModel = hiltViewModel()) {
+fun VoiceScreen(
+    padding: PaddingValues,
+    onManual: () -> Unit,
+    viewModel: VoiceViewModel = hiltViewModel()
+) {
     val state by viewModel.state.collectAsState()
-    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(onClick = viewModel::listen, modifier = Modifier.size(92.dp)) {
-            Icon(Icons.Default.Mic, contentDescription = "Hablar", modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        item {
+            IconButton(onClick = viewModel::listen, modifier = Modifier.size(92.dp)) {
+                Icon(Icons.Default.Mic, contentDescription = "Hablar", modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
+            }
+            Text(if (state.listening) "Escuchando..." else "Dictado de voz", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Toca el microfono y di una frase corta.")
         }
-        Text(if (state.listening) "Escuchando..." else "Comando por voz", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text(state.transcript)
-        Text(state.response, color = MaterialTheme.colorScheme.tertiary)
-        if (state.error != null) Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error)
+        item {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Ejemplos", fontWeight = FontWeight.SemiBold)
+                    Text("Ya corri 30 minutos")
+                    Text("Complete leer 20 paginas")
+                    Text("Salte tomar agua")
+                    Text("No pude estudiar algoritmos")
+                }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Como funciona", fontWeight = FontWeight.SemiBold)
+                    Text("La app convierte tu voz en texto, envia la frase al backend y registra el habito localmente si entiende una accion.")
+                    Text("Si no quieres usar voz, crea el habito con el formulario manual.")
+                }
+            }
+        }
+        if (state.transcript.isNotBlank() || state.response.isNotBlank() || state.error != null) {
+            item {
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (state.transcript.isNotBlank()) Text(state.transcript, fontWeight = FontWeight.SemiBold)
+                        if (state.response.isNotBlank()) Text(state.response, color = MaterialTheme.colorScheme.tertiary)
+                        if (state.error != null) Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+        item {
+            Button(onClick = onManual, modifier = Modifier.fillMaxWidth()) { Text("Registrar manualmente") }
+        }
+    }
+}
+
+@Composable
+fun ManualHabitScreen(
+    padding: PaddingValues,
+    onDone: () -> Unit,
+    viewModel: ManualHabitViewModel = hiltViewModel()
+) {
+    val state by viewModel.state.collectAsState()
+    LaunchedEffect(state.saved) {
+        if (state.saved) onDone()
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text("Registro manual", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text("Crea un habito sin usar dictado de voz.")
+        }
+        item { OutlinedTextField(state.name, viewModel::updateName, label = { Text("Nombre del habito") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
+        item { OutlinedTextField(state.category, viewModel::updateCategory, label = { Text("Categoria") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
+        item { OutlinedTextField(state.frequency, viewModel::updateFrequency, label = { Text("Frecuencia") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
+        item { OutlinedTextField(state.reminderTime, viewModel::updateReminderTime, label = { Text("Hora o nota") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
+        if (state.error != null) {
+            item { Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error) }
+        }
+        item {
+            Button(onClick = viewModel::save, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) {
+                Text(if (state.loading) "Guardando..." else "Guardar habito")
+            }
+        }
     }
 }
 
