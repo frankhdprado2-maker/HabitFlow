@@ -48,7 +48,12 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: str
 
     # AI
+    LLM_TYPE: str = "local"
+    LLM_PROVIDER: str = "openai"
     LLM_URL: str
+    LLM_BASE_URL: str = "https://api.openai.com/v1"
+    LLM_API_KEY: str = ""
+    LLM_MODEL: str = "gpt-5.5"
 
     # Seed
     SEED_ADMIN_EMAIL: str
