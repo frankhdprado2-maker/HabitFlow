@@ -28,10 +28,10 @@ data class RegisterUiState(
 )
 
 data class HomeUiState(
-    val userName: String = "Frankie",
+    val userName: String = "Estudiante",
     val habits: List<Habit> = emptyList(),
     val completedToday: Int = 0,
-    val streak: Int = 12,
+    val streak: Int = 0,
     val voiceText: String = "",
     val voiceResponse: String = "",
     val loading: Boolean = true
@@ -41,13 +41,13 @@ data class HabitDetailUiState(
     val habit: Habit? = null,
     val events: List<HabitEvent> = emptyList(),
     val note: String = "",
-    val completionPercent: Int = 78
+    val completionPercent: Int = 0
 )
 
 data class StatsUiState(
-    val currentStreak: Int = 12,
-    val monthPercent: Int = 78,
-    val weekly: List<Int> = listOf(4, 3, 5, 4, 2, 3, 4),
+    val currentStreak: Int = 0,
+    val monthPercent: Int = 0,
+    val weekly: List<Int> = List(7) { 0 },
     val habits: List<Habit> = emptyList()
 )
 
@@ -57,9 +57,9 @@ data class HistoryUiState(
 )
 
 data class ProfileUiState(
-    val user: User = User("local", "Frankie", "frankie", "frankie@unmsm.edu.pe"),
+    val user: User = User("local", "Estudiante", "estudiante", ""),
     val achievements: List<Achievement> = emptyList(),
-    val friends: List<Pair<String, Int>> = listOf("Ariana" to 9, "Luis" to 7, "Camila" to 5)
+    val friends: List<Pair<String, Int>> = emptyList()
 )
 
 data class SettingsUiState(
@@ -71,8 +71,8 @@ data class NotificationsUiState(
 )
 
 data class AchievementsUiState(
-    val level: Int = 4,
-    val xp: Int = 640,
+    val level: Int = 0,
+    val xp: Int = 0,
     val achievements: List<Achievement> = emptyList()
 )
 

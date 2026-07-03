@@ -15,6 +15,9 @@ interface HabitDao {
     @Query("SELECT * FROM habits WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<HabitEntity?>
 
+    @Query("SELECT * FROM habits WHERE lower(name) = lower(:name) LIMIT 1")
+    suspend fun findByName(name: String): HabitEntity?
+
     @Query("SELECT COUNT(*) FROM habits")
     suspend fun count(): Int
 

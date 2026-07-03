@@ -55,4 +55,14 @@ async def refresh_token(payload: RefreshTokenRequest, service: AuthService = Dep
 
 @router.get("/me")
 async def me(user=Depends(get_current_user)):
-    return {"user": user}
+    email = user["email"]
+    return {
+        "id": user["user_id"],
+        "name": email.split("@", 1)[0],
+        "username": email.split("@", 1)[0],
+        "email": email,
+        "bio": "",
+        "goal": "",
+        "timezone": "America/Lima",
+        "avatar_url": None,
+    }

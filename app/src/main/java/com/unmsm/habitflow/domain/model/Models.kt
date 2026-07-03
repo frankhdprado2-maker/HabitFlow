@@ -8,8 +8,8 @@ data class User(
     val bio: String = "",
     val goal: String = "Ser constante",
     val timezone: String = "America/Lima",
-    val level: Int = 4,
-    val xp: Int = 640,
+    val level: Int = 0,
+    val xp: Int = 0,
     val avatarUrl: String? = null
 )
 

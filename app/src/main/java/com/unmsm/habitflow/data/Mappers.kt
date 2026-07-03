@@ -23,7 +23,7 @@ fun UserDto.toDomain() = User(
     username = username ?: email.substringBefore("@"),
     email = email,
     bio = bio.orEmpty(),
-    goal = goal ?: "Organizar mi semestre",
+    goal = goal.orEmpty(),
     timezone = timezone ?: "America/Lima",
     avatarUrl = avatarUrl
 )

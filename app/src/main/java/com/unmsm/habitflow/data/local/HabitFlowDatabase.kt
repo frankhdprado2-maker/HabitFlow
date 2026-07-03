@@ -18,7 +18,7 @@ import com.unmsm.habitflow.data.local.entity.NotificationEntity
         AchievementEntity::class,
         NotificationEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class HabitFlowDatabase : RoomDatabase() {

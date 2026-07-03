@@ -81,7 +81,7 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): HabitFlowDatabase =
         Room.databaseBuilder(context, HabitFlowDatabase::class.java, "habitflow.db")
-            .fallbackToDestructiveMigration(false)
+            .fallbackToDestructiveMigration(true)
             .build()
 
     @Provides

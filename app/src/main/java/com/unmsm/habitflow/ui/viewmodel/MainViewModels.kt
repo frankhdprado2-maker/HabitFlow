@@ -49,10 +49,6 @@ class HomeViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
 
-    init {
-        viewModelScope.launch { habitRepository.ensureSeedData() }
-    }
-
     fun mark(habit: Habit, status: HabitStatus = HabitStatus.Completed) {
         viewModelScope.launch { habitRepository.markHabit(habit, status) }
     }
@@ -64,6 +60,7 @@ class HomeViewModel @Inject constructor(
                 viewModelScope.launch {
                     when (val result = voiceRepository.command(text)) {
                         is AppResult.Success -> {
+                            habitRepository.applyVoiceCommand(result.data)
                             _voice.value = text to result.data.response
                             voiceController.speak(result.data.response)
                         }
@@ -106,7 +103,13 @@ class StatsViewModel @Inject constructor(
     habitRepository: HabitRepository
 ) : ViewModel() {
     val state: StateFlow<StatsUiState> = habitRepository.observeHabits()
-        .map { habits -> StatsUiState(habits = habits) }
+        .map { habits ->
+            StatsUiState(
+                currentStreak = habits.maxOfOrNull { it.streak } ?: 0,
+                monthPercent = 0,
+                habits = habits
+            )
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsUiState())
 }
 
@@ -160,7 +163,7 @@ class SettingsViewModel @Inject constructor(
     fun toggleNotifications(value: Boolean) = viewModelScope.launch { settingsRepository.setNotifications(value) }
     fun toggleBiometric(value: Boolean) = viewModelScope.launch { settingsRepository.setBiometric(value) }
     fun togglePublicProfile(value: Boolean) = viewModelScope.launch { settingsRepository.setPublicProfile(value) }
-    fun logout() = authRepository.logout()
+    fun logout() = viewModelScope.launch { authRepository.logout() }
 }
 
 @HiltViewModel
@@ -184,6 +187,7 @@ class AchievementsViewModel @Inject constructor(
 @HiltViewModel
 class VoiceViewModel @Inject constructor(
     private val voiceRepository: VoiceRepository,
+    private val habitRepository: HabitRepository,
     private val voiceController: VoiceController
 ) : ViewModel() {
     private val _state = MutableStateFlow(VoiceUiState())
@@ -197,6 +201,7 @@ class VoiceViewModel @Inject constructor(
                 viewModelScope.launch {
                     when (val result = voiceRepository.command(text)) {
                         is AppResult.Success -> {
+                            habitRepository.applyVoiceCommand(result.data)
                             _state.update { it.copy(response = result.data.response) }
                             voiceController.speak(result.data.response)
                         }

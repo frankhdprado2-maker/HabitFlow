@@ -112,7 +112,18 @@ fun HabitFlowApp() {
                 )
             }
             composable(Route.EditProfile.path) { EditProfileScreen(padding) { navController.popBackStack() } }
-            composable(Route.Settings.path) { SettingsScreen(padding, onDelete = { navController.navigate(Route.DeleteAccount.path) }) }
+            composable(Route.Settings.path) {
+                SettingsScreen(
+                    padding = padding,
+                    onDelete = { navController.navigate(Route.DeleteAccount.path) },
+                    onLogout = {
+                        navController.navigate(Route.Login.path) {
+                            popUpTo(Route.Home.path) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                )
+            }
             composable(Route.Achievements.path) { AchievementsScreen(padding) }
             composable(Route.DeleteAccount.path) { DeleteAccountScreen(padding) { navController.popBackStack(Route.Login.path, false) } }
             composable(Route.Voice.path) { VoiceScreen(padding) }

@@ -106,6 +106,9 @@ fun HomeScreen(
             }
         }
         item { SectionTitle("Hábitos de hoy") }
+        if (state.habits.isEmpty()) {
+            item { Text("Aun no tienes habitos. Usa el microfono para registrar uno por voz.") }
+        }
         items(state.habits) { habit ->
             HabitRow(
                 habit = habit,
@@ -234,7 +237,7 @@ fun ProfileScreen(padding: PaddingValues, onEdit: () -> Unit, onAchievements: ()
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text(state.user.name, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("@${state.user.username} · nivel ${state.user.level} · racha 12")
+            Text("@${state.user.username} - nivel ${state.user.level} - racha 0")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
                 Button(onClick = onEdit) { Text("Editar perfil") }
                 Button(onClick = onAchievements) { Text("Logros") }
@@ -242,7 +245,13 @@ fun ProfileScreen(padding: PaddingValues, onEdit: () -> Unit, onAchievements: ()
         }
         item { SectionTitle("Insignias") }
         items(state.achievements.filter { it.unlocked }) { Text("• ${it.title}: ${it.description}") }
+        if (state.achievements.isEmpty()) {
+            item { Text("Todavia no tienes insignias.") }
+        }
         item { SectionTitle("Amigos activos") }
+        if (state.friends.isEmpty()) {
+            item { Text("Todavia no agregaste amigos.") }
+        }
         items(state.friends) { friend -> Text("${friend.first}: racha ${friend.second}") }
     }
 }
@@ -259,7 +268,12 @@ fun EditProfileScreen(padding: PaddingValues, onDone: () -> Unit) {
 }
 
 @Composable
-fun SettingsScreen(padding: PaddingValues, onDelete: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(
+    padding: PaddingValues,
+    onDelete: () -> Unit,
+    onLogout: () -> Unit,
+    viewModel: SettingsViewModel = hiltViewModel()
+) {
     val state by viewModel.state.collectAsState()
     Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Configuración", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -269,7 +283,7 @@ fun SettingsScreen(padding: PaddingValues, onDelete: () -> Unit, viewModel: Sett
         SettingSwitch("Perfil público", state.settings.publicProfile, viewModel::togglePublicProfile)
         Text("Idioma: ${state.settings.language}")
         Button(onClick = {}) { Text("Cambiar contraseña") }
-        Button(onClick = viewModel::logout) { Text("Cerrar sesión") }
+        Button(onClick = { viewModel.logout(); onLogout() }) { Text("Cerrar sesion") }
         TextButton(onClick = onDelete) { Text("Eliminar cuenta", color = MaterialTheme.colorScheme.error) }
     }
 }

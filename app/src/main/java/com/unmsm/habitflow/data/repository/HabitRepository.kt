@@ -15,6 +15,7 @@ import com.unmsm.habitflow.domain.model.Habit
 import com.unmsm.habitflow.domain.model.HabitEvent
 import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.domain.model.NotificationKind
+import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.util.AppResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -81,6 +82,24 @@ class HabitRepository @Inject constructor(
                 category = category
             ).toEntity()
         )
+    }
+
+    suspend fun applyVoiceCommand(result: VoiceCommandResult): AppResult<HabitEvent>? {
+        val habitName = result.habitName?.trim().orEmpty()
+        val status = result.status ?: return null
+        if (result.intent != "registrar_habito" || habitName.isBlank()) return null
+
+        val habit = habitDao.findByName(habitName)?.toDomain()
+            ?: Habit(
+                id = UUID.randomUUID().toString(),
+                name = habitName.replaceFirstChar { it.uppercase() },
+                icon = "mic",
+                frequency = "Diario",
+                reminderTime = "Sin hora",
+                category = "Voz"
+            ).also { habitDao.upsert(it.toEntity()) }
+
+        return markHabit(habit, status, "Registrado por voz")
     }
 
     suspend fun markHabit(habit: Habit, status: HabitStatus, note: String = ""): AppResult<HabitEvent> {
