@@ -16,6 +16,14 @@ data class RegisterRequest(
 )
 
 @JsonClass(generateAdapter = true)
+data class RegisterResponse(
+    @Json(name = "user_id") val userId: String? = null,
+    @Json(name = "access_token") val accessToken: String? = null,
+    @Json(name = "refresh_token") val refreshToken: String? = null,
+    @Json(name = "token_type") val tokenType: String? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class GoogleLoginRequest(
     @Json(name = "token") val idToken: String
 )

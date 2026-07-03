@@ -28,8 +28,13 @@ class AuthRepository @Inject constructor(
     suspend fun register(name: String, email: String, password: String, username: String, goal: String): AppResult<Unit> =
         runNetwork {
             val cleanEmail = email.trim()
-            val tokens = authApi.register(RegisterRequest(cleanEmail, password))
-            tokenManager.save(tokens.accessToken, tokens.refreshToken)
+            val register = authApi.register(RegisterRequest(cleanEmail, password))
+            if (!register.accessToken.isNullOrBlank() && !register.refreshToken.isNullOrBlank()) {
+                tokenManager.save(register.accessToken, register.refreshToken)
+            } else {
+                val tokens = authApi.login(LoginRequest(cleanEmail, password))
+                tokenManager.save(tokens.accessToken, tokens.refreshToken)
+            }
         }
 
     suspend fun googleLogin(idToken: String): AppResult<Unit> =

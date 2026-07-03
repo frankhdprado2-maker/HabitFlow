@@ -3,6 +3,7 @@ package com.unmsm.habitflow.data.remote.api
 import com.unmsm.habitflow.data.remote.dto.GoogleLoginRequest
 import com.unmsm.habitflow.data.remote.dto.LoginRequest
 import com.unmsm.habitflow.data.remote.dto.RefreshTokenRequest
+import com.unmsm.habitflow.data.remote.dto.RegisterResponse
 import com.unmsm.habitflow.data.remote.dto.RegisterRequest
 import com.unmsm.habitflow.data.remote.dto.TokenResponse
 import com.unmsm.habitflow.data.remote.dto.UserDto
@@ -12,7 +13,7 @@ import retrofit2.http.POST
 
 interface AuthApi {
     @POST("auth/register")
-    suspend fun register(@Body request: RegisterRequest): TokenResponse
+    suspend fun register(@Body request: RegisterRequest): RegisterResponse
 
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequest): TokenResponse
