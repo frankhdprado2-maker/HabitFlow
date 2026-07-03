@@ -22,8 +22,14 @@ class LoginViewModel @Inject constructor(
 
     fun updateEmail(value: String) = _state.update { it.copy(email = value, error = null) }
     fun updatePassword(value: String) = _state.update { it.copy(password = value, error = null) }
+    fun showError(message: String) = _state.update { it.copy(loading = false, error = message) }
 
     fun login() {
+        val current = state.value
+        if (current.email.isBlank() || current.password.isBlank()) {
+            showError("Ingresa tu email y contraseña.")
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             when (val result = authRepository.login(state.value.email, state.value.password)) {
@@ -59,9 +65,13 @@ class RegisterViewModel @Inject constructor(
     fun previousStep() = _state.update { it.copy(step = (it.step - 1).coerceAtLeast(1)) }
 
     fun register() {
+        val current = state.value
+        if (current.name.isBlank() || current.email.isBlank() || current.password.isBlank()) {
+            _state.update { it.copy(error = "Completa nombre, email y contraseña.") }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            val current = state.value
             when (val result = authRepository.register(current.name, current.email, current.password, current.username, current.goal)) {
                 is AppResult.Success -> _state.update { it.copy(loading = false, registered = true) }
                 is AppResult.Error -> _state.update { it.copy(loading = false, error = result.message) }

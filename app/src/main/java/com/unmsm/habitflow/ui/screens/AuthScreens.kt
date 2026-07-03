@@ -15,18 +15,28 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialException
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.unmsm.habitflow.BuildConfig
 import com.unmsm.habitflow.ui.components.FormField
 import com.unmsm.habitflow.ui.components.PrimaryAction
 import com.unmsm.habitflow.ui.components.VerticalSpacer
 import com.unmsm.habitflow.ui.viewmodel.LoginViewModel
 import com.unmsm.habitflow.ui.viewmodel.RegisterViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun SplashScreen(padding: PaddingValues, onDone: () -> Unit) {
@@ -74,6 +84,8 @@ fun LoginScreen(
     viewModel: LoginViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     LaunchedEffect(state.loggedIn) {
         if (state.loggedIn) onLogin()
     }
@@ -97,11 +109,61 @@ fun LoginScreen(
         if (state.error != null) Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
         VerticalSpacer()
         PrimaryAction(if (state.loading) "Entrando..." else "Iniciar sesión", viewModel::login)
-        Button(onClick = { viewModel.googleLogin("TODO_WEB_ID_TOKEN") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Button(
+            onClick = {
+                scope.launch {
+                    signInWithGoogle(
+                        credentialManager = CredentialManager.create(context),
+                        context = context,
+                        onToken = viewModel::googleLogin,
+                        onError = viewModel::showError
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+        ) {
             Text("Continuar con Google")
         }
         TextButton(onClick = onRecover) { Text("Recuperar contraseña") }
         TextButton(onClick = onRegister) { Text("Crear cuenta") }
+    }
+}
+
+private suspend fun signInWithGoogle(
+    credentialManager: CredentialManager,
+    context: android.content.Context,
+    onToken: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
+    if (webClientId.isBlank()) {
+        onError("Falta configurar GOOGLE_WEB_CLIENT_ID en local.properties.")
+        return
+    }
+
+    val googleIdOption = GetGoogleIdOption.Builder()
+        .setFilterByAuthorizedAccounts(false)
+        .setServerClientId(webClientId)
+        .build()
+
+    val request = GetCredentialRequest.Builder()
+        .addCredentialOption(googleIdOption)
+        .build()
+
+    try {
+        val credential = credentialManager.getCredential(context, request).credential
+        if (credential is CustomCredential &&
+            credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+        ) {
+            val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
+            onToken(googleCredential.idToken)
+        } else {
+            onError("No se pudo obtener el token de Google.")
+        }
+    } catch (error: GetCredentialException) {
+        onError("Inicio con Google cancelado o no disponible.")
+    } catch (error: Throwable) {
+        onError("No se pudo iniciar sesión con Google.")
     }
 }
 
