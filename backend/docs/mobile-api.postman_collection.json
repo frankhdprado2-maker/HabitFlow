@@ -1,0 +1,1499 @@
+{
+  "info": {
+    "_postman_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+    "name": "mobile-api",
+    "description": "Colección **mobile-api** — Platform API multi-tenant.\n\n## URL base del tenant\n\n```\n{{baseUrl}}/{{projectSlug}}/...\n```\n\nEjemplo: `http://localhost:8000/layout_example/auth/login`\n\n## Arquitectura (`layout_example`)\n\n```text\napi/     -> HTTP, schemas, deps\ndomain/  -> auth_service, security, exceptions\ninfra/   -> settings, DB, repositories, clients\n```\n\nCredenciales: `credentials/{{projectSlug}}.env`\n\n## Variables de colección\n\n| Variable | Uso |\n|----------|-----|\n| `baseUrl` | Servidor (default `http://localhost:8000`) |\n| `projectSlug` | Tenant (`layout_example`) |\n| `email` | Login / Register |\n| `password` | Login / Register |\n| `googleIdToken` | Body de Google login |\n| `accessToken` | JWT (auto en Login / Google) |\n| `userId` | Mongo ObjectId (auto en Register) |\n| `geoEventId` | ID del geo event (auto en Create) |\n\n## Flujo recomendado\n\n1. **Health check** → consola uvicorn debe mostrar `✔ LOADED: layout_example`\n2. **Register** → inserta en MongoDB `mobile_users`\n3. **Login** → guarda JWT en `accessToken`\n4. **Me** → valida Bearer\n5. **Create geo event** → guarda `geoEventId`\n6. **Get / List / Delete** geo event\n\n## Arranque\n\n```bash\nuv sync\nuv run uvicorn app.main:app --reload\n```",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",      "value": "http://localhost:8000", "type": "string" },
+    { "key": "projectSlug",  "value": "layout_example",        "type": "string" },
+    { "key": "email",        "value": "admin@mobileapi.com",   "type": "string" },
+    { "key": "password",     "value": "Admin1234!",            "type": "string" },
+    { "key": "googleIdToken", "value": "",                       "type": "string" },
+    { "key": "deviceId",      "value": "device-test-001",        "type": "string" },
+    { "key": "accessToken",   "value": "",                       "type": "string" },
+    { "key": "refreshToken",  "value": "",                       "type": "string" },
+    { "key": "userId",       "value": "",                       "type": "string" },
+    { "key": "geoEventId",   "value": "",                       "type": "string" },
+    { "key": "fileId",       "value": "",                       "type": "string" },
+    { "key": "objectKey",    "value": "",                       "type": "string" },
+    { "key": "uploadUrl",    "value": "",                       "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Platform",
+      "description": "FastAPI global (sin prefijo de tenant).",
+      "item": [
+        {
+          "name": "OpenAPI JSON",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/openapi.json",
+            "description": "Si `paths` está vacío, el tenant no cargó. Revisa uvicorn: `❌ ERROR layout_example`."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": { "method": "GET", "header": [], "url": "{{baseUrl}}/openapi.json" },
+              "status": "OK", "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "cookie": [],
+              "body": "{\n  \"openapi\": \"3.1.0\",\n  \"info\": { \"title\": \"FastAPI\", \"version\": \"0.1.0\" },\n  \"paths\": {\n    \"/layout_example/health\": {},\n    \"/layout_example/auth/login\": {},\n    \"/layout_example/geo-events/\": {}\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Swagger UI",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/docs"
+          },
+          "response": [
+            {
+              "name": "200 OK — HTML",
+              "originalRequest": { "method": "GET", "header": [], "url": "{{baseUrl}}/docs" },
+              "status": "OK", "code": 200,
+              "_postman_previewlanguage": "html",
+              "header": [{ "key": "Content-Type", "value": "text/html" }],
+              "cookie": [],
+              "body": "<!-- Swagger UI HTML -->"
+            }
+          ]
+        },
+        {
+          "name": "ReDoc",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/redoc"
+          },
+          "response": [
+            {
+              "name": "200 OK — HTML",
+              "originalRequest": { "method": "GET", "header": [], "url": "{{baseUrl}}/redoc" },
+              "status": "OK", "code": 200,
+              "_postman_previewlanguage": "html",
+              "header": [{ "key": "Content-Type", "value": "text/html" }],
+              "cookie": [],
+              "body": "<!-- ReDoc HTML -->"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "layout_example",
+      "description": "Tenant `layout_example` — montado en `/layout_example` vía `api/router.py`.",
+      "item": [
+        {
+          "name": "Health",
+          "item": [
+            {
+              "name": "Health check",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "const json = pm.response.json();",
+                      "pm.test('status ok', () => pm.expect(json.status).to.eql('ok'));",
+                      "pm.test('project slug', () => {",
+                      "    pm.expect(json.project).to.eql(pm.collectionVariables.get('projectSlug'));",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/{{projectSlug}}/health",
+                "description": "`GET /{projectSlug}/health`\n\n```json\n{ \"project\": \"layout_example\", \"status\": \"ok\" }\n```"
+              },
+              "response": [
+                {
+                  "name": "200 OK",
+                  "originalRequest": { "method": "GET", "header": [], "url": "{{baseUrl}}/{{projectSlug}}/health" },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"project\": \"layout_example\",\n  \"status\": \"ok\"\n}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Auth",
+          "description": "Rutas en `api/auth.py`. Persistencia: `infra/repositories` → MongoDB `mobile_users`.",
+          "item": [
+            {
+              "name": "Register",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const json = pm.response.json();",
+                      "    pm.test('user_id present', () => pm.expect(json.user_id).to.be.a('string'));",
+                      "    pm.collectionVariables.set('userId', json.user_id);",
+                      "}",
+                      "if (pm.response.code === 400) {",
+                      "    pm.test('already exists', () => {",
+                      "        pm.expect(pm.response.json().detail).to.include('exists');",
+                      "    });",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/auth/register",
+                "description": "`POST /{projectSlug}/auth/register`\n\n**Body** (`LoginRequest`): `email`, `password`\n\n| Status | Respuesta |\n|--------|----------|\n| 200 | `{ \"user_id\": \"<mongo_id>\" }` |\n| 400 | `{ \"detail\": \"User already exists\" }` |\n\nNo devuelve JWT → ejecutar **Login** después."
+              },
+              "response": [
+                {
+                  "name": "200 OK — Usuario creado",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@mobileapi.com\",\n  \"password\": \"Admin1234!\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/auth/register"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"user_id\": \"64f1a2b3c4d5e6f7a8b9c0d1\"\n}"
+                },
+                {
+                  "name": "400 — Usuario ya existe",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@mobileapi.com\",\n  \"password\": \"Admin1234!\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/auth/register"
+                  },
+                  "status": "Bad Request", "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"User already exists\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Login",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const json = pm.response.json();",
+                      "    pm.test('access_token', () => pm.expect(json.access_token).to.be.a('string'));",
+                      "    pm.test('refresh_token', () => pm.expect(json.refresh_token).to.be.a('string'));",
+                      "    pm.test('token_type bearer', () => pm.expect(json.token_type).to.eql('bearer'));",
+                      "    pm.collectionVariables.set('accessToken', json.access_token);",
+                      "    pm.collectionVariables.set('refreshToken', json.refresh_token);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"device_id\": \"{{deviceId}}\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/auth/login",
+                "description": "`POST /{projectSlug}/auth/login`\n\n**Body** (`LoginRequest`): `email`, `password`\n\n| Status | Respuesta |\n|--------|----------|\n| 200 | `{ \"access_token\": \"...\", \"token_type\": \"bearer\" }` |\n| 401 | `{ \"detail\": \"Invalid credentials\" }` |\n\nGuarda `accessToken` en Tests."
+              },
+              "response": [
+                {
+                  "name": "200 OK — Token JWT",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@mobileapi.com\",\n  \"password\": \"Admin1234!\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/auth/login"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"access_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NGYxYTJiM2M0ZDVlNmY3YThiOWMwZDEiLCJlbWFpbCI6ImFkbWluQG1vYmlsZWFwaS5jb20iLCJleHAiOjk5OTk5OTk5OTl9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c\",\n  \"token_type\": \"bearer\"\n}"
+                },
+                {
+                  "name": "401 — Credenciales inválidas",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@mobileapi.com\",\n  \"password\": \"wrong\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/auth/login"
+                  },
+                  "status": "Unauthorized", "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"Invalid credentials\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Google login",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const json = pm.response.json();",
+                      "    pm.test('access_token', () => pm.expect(json.access_token).to.be.a('string'));",
+                      "    pm.test('refresh_token', () => pm.expect(json.refresh_token).to.be.a('string'));",
+                      "    pm.collectionVariables.set('accessToken', json.access_token);",
+                      "    pm.collectionVariables.set('refreshToken', json.refresh_token);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"token\": \"{{googleIdToken}}\",\n  \"device_id\": \"{{deviceId}}\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/auth/google",
+                "description": "`POST /{projectSlug}/auth/google`\n\n**Body** (`GoogleLoginRequest`): `token` (Google ID token)\n\n| Status | Respuesta |\n|--------|----------|\n| 200 | `TokenResponse` |\n| 401 | `{ \"detail\": \"Invalid Google token\" }` |\n\nVariable: `googleIdToken`."
+              },
+              "response": [
+                {
+                  "name": "200 OK — Token JWT",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"token\": \"ya29.a0AfH6SMC...\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/auth/google"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"access_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMDg5MDIzNDU2Nzg5MDEyMzQ1NiIsImVtYWlsIjoiYWRtaW5AbW9iaWxlYXBpLmNvbSIsImV4cCI6OTk5OTk5OTk5OX0.example\",\n  \"token_type\": \"bearer\"\n}"
+                },
+                {
+                  "name": "401 — Token de Google inválido",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"token\": \"invalid_token\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/auth/google"
+                  },
+                  "status": "Unauthorized", "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"Invalid Google token\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Refresh token",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const json = pm.response.json();",
+                      "    pm.test('access_token', () => pm.expect(json.access_token).to.be.a('string'));",
+                      "    pm.test('refresh_token rotated', () => pm.expect(json.refresh_token).to.be.a('string'));",
+                      "    pm.collectionVariables.set('accessToken', json.access_token);",
+                      "    pm.collectionVariables.set('refreshToken', json.refresh_token);",
+                      "}",
+                      "if (pm.response.code === 401) {",
+                      "    pm.test('invalid refresh token', () => {",
+                      "        pm.expect(pm.response.json().detail).to.include('refresh token');",
+                      "    });",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\",\n  \"device_id\": \"{{deviceId}}\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/auth/refresh-token",
+                "description": "`POST /{projectSlug}/auth/refresh-token`\n\nRota el refresh token: invalida el token enviado y genera un nuevo par `access_token` + `refresh_token`.\n\n**Body** (`RefreshTokenRequest`): `refresh_token`\n\n| Status | Respuesta |\n|--------|----------|\n| 200 | `TokenResponse` con nuevo `access_token` + `refresh_token` |\n| 401 | `{ \"detail\": \"Invalid or expired refresh token\" }` |\n\nEl `refreshToken` de colección se actualiza automáticamente en Tests.\n\n**Flujo recomendado:** Login → usar `accessToken` → cuando expire, llamar este endpoint con `refreshToken` para obtener nuevos tokens sin pedir credenciales."
+              },
+              "response": [
+                {
+                  "name": "200 OK — tokens rotados",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"refresh_token\": \"abc123...\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/auth/refresh-token"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"access_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n  \"refresh_token\": \"xyz789...\",\n  \"token_type\": \"bearer\"\n}"
+                },
+                {
+                  "name": "401 — Refresh token inválido o expirado",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"refresh_token\": \"invalid_or_already_used\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/auth/refresh-token"
+                  },
+                  "status": "Unauthorized", "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"Invalid or expired refresh token\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Me (current user)",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (!pm.collectionVariables.get('accessToken')) {",
+                      "    console.warn('accessToken vacío — ejecuta Login primero');",
+                      "}"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "const json = pm.response.json();",
+                      "pm.test('user object', () => {",
+                      "    pm.expect(json.user).to.have.keys('user_id', 'email');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+                },
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/{{projectSlug}}/auth/me",
+                "description": "`GET /{projectSlug}/auth/me`\n\n**Header:** `Authorization: Bearer {{accessToken}}`\n\n| Status | Respuesta |\n|--------|----------|\n| 200 | `{ \"user\": { \"user_id\", \"email\" } }` |\n| 401 | `{ \"detail\": \"Invalid token\" }` |"
+              },
+              "response": [
+                {
+                  "name": "200 OK — Usuario actual",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+                    "url": "{{baseUrl}}/{{projectSlug}}/auth/me"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"user\": {\n    \"user_id\": \"64f1a2b3c4d5e6f7a8b9c0d1\",\n    \"email\": \"admin@mobileapi.com\"\n  }\n}"
+                },
+                {
+                  "name": "401 — Token inválido o expirado",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Authorization", "value": "Bearer invalid_token" }],
+                    "url": "{{baseUrl}}/{{projectSlug}}/auth/me"
+                  },
+                  "status": "Unauthorized", "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"Invalid token\"\n}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Geo Events · SQL",
+          "description": "CRUD sobre `geo_events` (Postgres) usando SQL raw con SQLAlchemy `text()`. Rutas en `api/geo_events.py` → `infra/repositories/geo_event_repo.py`.",
+          "item": [
+            {
+              "name": "Create geo event",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                      "const json = pm.response.json();",
+                      "pm.test('id present', () => pm.expect(json.id).to.be.a('number'));",
+                      "pm.test('lat/lng present', () => {",
+                      "    pm.expect(json.latitude).to.be.a('number');",
+                      "    pm.expect(json.longitude).to.be.a('number');",
+                      "});",
+                      "pm.collectionVariables.set('geoEventId', json.id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"latitude\": 19.4326,\n  \"longitude\": -99.1332,\n  \"altitude\": 2240.0,\n  \"accuracy\": 5.0,\n  \"speed\": 1.4,\n  \"heading\": 90.0,\n  \"event_type\": \"gps_ping\",\n  \"device_id\": \"device-android-001\",\n  \"platform\": \"android\",\n  \"app_version\": \"1.0.0\",\n  \"device_model\": \"Pixel 8\",\n  \"recorded_at\": \"2026-06-02T10:00:00Z\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/geo-events/",
+                "description": "`POST /{projectSlug}/geo-events/`\n\n| Status | Respuesta |\n|--------|----------|\n| 201 | `GeoEventResponse` con `id` generado |\n\nGuarda `geoEventId` en Tests."
+              },
+              "response": [
+                {
+                  "name": "201 Created",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"latitude\": 19.4326,\n  \"longitude\": -99.1332,\n  \"altitude\": 2240.0,\n  \"accuracy\": 5.0,\n  \"speed\": 1.4,\n  \"heading\": 90.0,\n  \"event_type\": \"gps_ping\",\n  \"device_id\": \"device-android-001\",\n  \"platform\": \"android\",\n  \"app_version\": \"1.0.0\",\n  \"device_model\": \"Pixel 8\",\n  \"recorded_at\": \"2026-06-02T10:00:00Z\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/geo-events/"
+                  },
+                  "status": "Created", "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"id\": 1,\n  \"user_id\": null,\n  \"latitude\": 19.4326,\n  \"longitude\": -99.1332,\n  \"altitude\": 2240.0,\n  \"accuracy\": 5.0,\n  \"speed\": 1.4,\n  \"heading\": 90.0,\n  \"event_type\": \"gps_ping\",\n  \"device_id\": \"device-android-001\",\n  \"platform\": \"android\",\n  \"app_version\": \"1.0.0\",\n  \"device_model\": \"Pixel 8\",\n  \"recorded_at\": \"2026-06-02T10:00:00Z\",\n  \"created_at\": \"2026-06-02T10:00:01Z\"\n}"
+                },
+                {
+                  "name": "422 — Validación: latitude requerido",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"longitude\": -99.1332\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/geo-events/"
+                  },
+                  "status": "Unprocessable Entity", "code": 422,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": [\n    {\n      \"type\": \"missing\",\n      \"loc\": [\"body\", \"latitude\"],\n      \"msg\": \"Field required\"\n    }\n  ]\n}"
+                }
+              ]
+            },
+            {
+              "name": "Get geo event by ID",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "const json = pm.response.json();",
+                      "pm.test('id matches', () => {",
+                      "    pm.expect(String(json.id)).to.eql(pm.collectionVariables.get('geoEventId'));",
+                      "});",
+                      "pm.test('required fields', () => {",
+                      "    pm.expect(json).to.have.keys('id','latitude','longitude','event_type','recorded_at','created_at');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/{{projectSlug}}/geo-events/{{geoEventId}}",
+                "description": "`GET /{projectSlug}/geo-events/{id}`\n\n| Status | Respuesta |\n|--------|----------|\n| 200 | `GeoEventResponse` |\n| 404 | `{ \"detail\": \"Geo event not found\" }` |"
+              },
+              "response": [
+                {
+                  "name": "200 OK",
+                  "originalRequest": { "method": "GET", "header": [], "url": "{{baseUrl}}/{{projectSlug}}/geo-events/1" },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"id\": 1,\n  \"user_id\": null,\n  \"latitude\": 19.4326,\n  \"longitude\": -99.1332,\n  \"altitude\": 2240.0,\n  \"accuracy\": 5.0,\n  \"speed\": 1.4,\n  \"heading\": 90.0,\n  \"event_type\": \"gps_ping\",\n  \"device_id\": \"device-android-001\",\n  \"platform\": \"android\",\n  \"app_version\": \"1.0.0\",\n  \"device_model\": \"Pixel 8\",\n  \"recorded_at\": \"2026-06-02T10:00:00Z\",\n  \"created_at\": \"2026-06-02T10:00:01Z\"\n}"
+                },
+                {
+                  "name": "404 — No encontrado",
+                  "originalRequest": { "method": "GET", "header": [], "url": "{{baseUrl}}/{{projectSlug}}/geo-events/9999" },
+                  "status": "Not Found", "code": 404,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"Geo event not found\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "List geo events",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "pm.test('is array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/{{projectSlug}}/geo-events/?limit=20&offset=0",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["{{projectSlug}}", "geo-events", ""],
+                  "query": [
+                    { "key": "user_id",     "value": "64f1a2b3-c4d5-e6f7-a8b9-c0d1e2f3a4b5", "disabled": true, "description": "UUID del usuario (opcional)" },
+                    { "key": "event_type",  "value": "gps_ping",  "disabled": true,  "description": "Tipo de evento (opcional)" },
+                    { "key": "limit",       "value": "20",         "disabled": false, "description": "Máximo de resultados (default 50)" },
+                    { "key": "offset",      "value": "0",          "disabled": false, "description": "Paginación (default 0)" }
+                  ]
+                },
+                "description": "`GET /{projectSlug}/geo-events/`\n\n**Query params opcionales:** `user_id`, `event_type`, `limit` (default 50), `offset` (default 0)\n\nOrdenado por `recorded_at DESC`."
+              },
+              "response": [
+                {
+                  "name": "200 OK — Lista paginada",
+                  "originalRequest": {
+                    "method": "GET", "header": [],
+                    "url": { "raw": "{{baseUrl}}/{{projectSlug}}/geo-events/?limit=20&offset=0", "query": [{ "key": "limit", "value": "20" }, { "key": "offset", "value": "0" }] }
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "[\n  {\n    \"id\": 2,\n    \"user_id\": null,\n    \"latitude\": 19.4327,\n    \"longitude\": -99.1333,\n    \"altitude\": 2241.0,\n    \"accuracy\": 4.5,\n    \"speed\": 0.8,\n    \"heading\": 91.0,\n    \"event_type\": \"gps_ping\",\n    \"device_id\": \"device-android-001\",\n    \"platform\": \"android\",\n    \"app_version\": \"1.0.0\",\n    \"device_model\": \"Pixel 8\",\n    \"recorded_at\": \"2026-06-02T10:00:05Z\",\n    \"created_at\": \"2026-06-02T10:00:06Z\"\n  },\n  {\n    \"id\": 1,\n    \"user_id\": null,\n    \"latitude\": 19.4326,\n    \"longitude\": -99.1332,\n    \"altitude\": 2240.0,\n    \"accuracy\": 5.0,\n    \"speed\": 1.4,\n    \"heading\": 90.0,\n    \"event_type\": \"gps_ping\",\n    \"device_id\": \"device-android-001\",\n    \"platform\": \"android\",\n    \"app_version\": \"1.0.0\",\n    \"device_model\": \"Pixel 8\",\n    \"recorded_at\": \"2026-06-02T10:00:00Z\",\n    \"created_at\": \"2026-06-02T10:00:01Z\"\n  }\n]"
+                }
+              ]
+            },
+            {
+              "name": "Delete geo event",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 204', () => pm.response.to.have.status(204));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "DELETE",
+                "header": [],
+                "url": "{{baseUrl}}/{{projectSlug}}/geo-events/{{geoEventId}}",
+                "description": "`DELETE /{projectSlug}/geo-events/{id}`\n\n| Status | Respuesta |\n|--------|----------|\n| 204 | Sin cuerpo |\n| 404 | `{ \"detail\": \"Geo event not found\" }` |"
+              },
+              "response": [
+                {
+                  "name": "204 No Content",
+                  "originalRequest": { "method": "DELETE", "header": [], "url": "{{baseUrl}}/{{projectSlug}}/geo-events/1" },
+                  "status": "No Content", "code": 204,
+                  "_postman_previewlanguage": "json",
+                  "header": [],
+                  "cookie": [],
+                  "body": ""
+                },
+                {
+                  "name": "404 — No encontrado",
+                  "originalRequest": { "method": "DELETE", "header": [], "url": "{{baseUrl}}/{{projectSlug}}/geo-events/9999" },
+                  "status": "Not Found", "code": 404,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"Geo event not found\"\n}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Geo Events · ORM",
+          "description": "Mismo CRUD sobre `geo_events` pero usando SQLAlchemy ORM (`select`, `delete`, mapped class). Rutas en `api/geo_events_orm.py` → `infra/repositories/geo_event_orm_repo.py` → `infra/orm/geo_event.py`.",
+          "item": [
+            {
+              "name": "Create geo event (ORM)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                      "const json = pm.response.json();",
+                      "pm.test('id present', () => pm.expect(json.id).to.be.a('number'));",
+                      "pm.collectionVariables.set('geoEventId', json.id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"latitude\": 40.7128,\n  \"longitude\": -74.0060,\n  \"altitude\": 10.0,\n  \"accuracy\": 3.0,\n  \"speed\": 0.0,\n  \"heading\": 180.0,\n  \"event_type\": \"gps_ping\",\n  \"device_id\": \"device-ios-002\",\n  \"platform\": \"ios\",\n  \"app_version\": \"1.0.0\",\n  \"device_model\": \"iPhone 15\",\n  \"recorded_at\": \"2026-06-02T12:00:00Z\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/geo-events-orm/",
+                "description": "`POST /{projectSlug}/geo-events-orm/`\n\nMismo contrato que el endpoint SQL. La diferencia está en la capa de repositorio: usa `session.add()` y `session.refresh()` en vez de `text(INSERT ...)`."
+              },
+              "response": [
+                {
+                  "name": "201 Created",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"latitude\": 40.7128,\n  \"longitude\": -74.0060,\n  \"altitude\": 10.0,\n  \"accuracy\": 3.0,\n  \"speed\": 0.0,\n  \"heading\": 180.0,\n  \"event_type\": \"gps_ping\",\n  \"device_id\": \"device-ios-002\",\n  \"platform\": \"ios\",\n  \"app_version\": \"1.0.0\",\n  \"device_model\": \"iPhone 15\",\n  \"recorded_at\": \"2026-06-02T12:00:00Z\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/geo-events-orm/"
+                  },
+                  "status": "Created", "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"id\": 3,\n  \"user_id\": null,\n  \"latitude\": 40.7128,\n  \"longitude\": -74.006,\n  \"altitude\": 10.0,\n  \"accuracy\": 3.0,\n  \"speed\": 0.0,\n  \"heading\": 180.0,\n  \"event_type\": \"gps_ping\",\n  \"device_id\": \"device-ios-002\",\n  \"platform\": \"ios\",\n  \"app_version\": \"1.0.0\",\n  \"device_model\": \"iPhone 15\",\n  \"recorded_at\": \"2026-06-02T12:00:00Z\",\n  \"created_at\": \"2026-06-02T12:00:01Z\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Get geo event by ID (ORM)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "const json = pm.response.json();",
+                      "pm.test('id matches', () => {",
+                      "    pm.expect(String(json.id)).to.eql(pm.collectionVariables.get('geoEventId'));",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/{{projectSlug}}/geo-events-orm/{{geoEventId}}",
+                "description": "`GET /{projectSlug}/geo-events-orm/{id}`\n\nUsa `session.get(GeoEventORM, id)` — lookup directo por PK."
+              },
+              "response": [
+                {
+                  "name": "200 OK",
+                  "originalRequest": { "method": "GET", "header": [], "url": "{{baseUrl}}/{{projectSlug}}/geo-events-orm/3" },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"id\": 3,\n  \"user_id\": null,\n  \"latitude\": 40.7128,\n  \"longitude\": -74.006,\n  \"altitude\": 10.0,\n  \"accuracy\": 3.0,\n  \"speed\": 0.0,\n  \"heading\": 180.0,\n  \"event_type\": \"gps_ping\",\n  \"device_id\": \"device-ios-002\",\n  \"platform\": \"ios\",\n  \"app_version\": \"1.0.0\",\n  \"device_model\": \"iPhone 15\",\n  \"recorded_at\": \"2026-06-02T12:00:00Z\",\n  \"created_at\": \"2026-06-02T12:00:01Z\"\n}"
+                },
+                {
+                  "name": "404 — No encontrado",
+                  "originalRequest": { "method": "GET", "header": [], "url": "{{baseUrl}}/{{projectSlug}}/geo-events-orm/9999" },
+                  "status": "Not Found", "code": 404,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"Geo event not found\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "List geo events (ORM)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "pm.test('is array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/{{projectSlug}}/geo-events-orm/?limit=20&offset=0",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["{{projectSlug}}", "geo-events-orm", ""],
+                  "query": [
+                    { "key": "user_id",     "value": "64f1a2b3-c4d5-e6f7-a8b9-c0d1e2f3a4b5", "disabled": true, "description": "UUID del usuario (opcional)" },
+                    { "key": "event_type",  "value": "gps_ping",  "disabled": true,  "description": "Tipo de evento (opcional)" },
+                    { "key": "limit",       "value": "20",         "disabled": false, "description": "Máximo de resultados (default 50)" },
+                    { "key": "offset",      "value": "0",          "disabled": false, "description": "Paginación (default 0)" }
+                  ]
+                },
+                "description": "`GET /{projectSlug}/geo-events-orm/`\n\nUsa `select(GeoEventORM).where(...).order_by(...).limit(...).offset(...)`."
+              },
+              "response": [
+                {
+                  "name": "200 OK — Lista paginada",
+                  "originalRequest": {
+                    "method": "GET", "header": [],
+                    "url": { "raw": "{{baseUrl}}/{{projectSlug}}/geo-events-orm/?limit=20&offset=0", "query": [{ "key": "limit", "value": "20" }, { "key": "offset", "value": "0" }] }
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "[\n  {\n    \"id\": 3,\n    \"user_id\": null,\n    \"latitude\": 40.7128,\n    \"longitude\": -74.006,\n    \"altitude\": 10.0,\n    \"accuracy\": 3.0,\n    \"speed\": 0.0,\n    \"heading\": 180.0,\n    \"event_type\": \"gps_ping\",\n    \"device_id\": \"device-ios-002\",\n    \"platform\": \"ios\",\n    \"app_version\": \"1.0.0\",\n    \"device_model\": \"iPhone 15\",\n    \"recorded_at\": \"2026-06-02T12:00:00Z\",\n    \"created_at\": \"2026-06-02T12:00:01Z\"\n  }\n]"
+                }
+              ]
+            },
+            {
+              "name": "Delete geo event (ORM)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 204', () => pm.response.to.have.status(204));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "DELETE",
+                "header": [],
+                "url": "{{baseUrl}}/{{projectSlug}}/geo-events-orm/{{geoEventId}}",
+                "description": "`DELETE /{projectSlug}/geo-events-orm/{id}`\n\nUsa `delete(GeoEventORM).where(GeoEventORM.id == id)`."
+              },
+              "response": [
+                {
+                  "name": "204 No Content",
+                  "originalRequest": { "method": "DELETE", "header": [], "url": "{{baseUrl}}/{{projectSlug}}/geo-events-orm/3" },
+                  "status": "No Content", "code": 204,
+                  "_postman_previewlanguage": "json",
+                  "header": [],
+                  "cookie": [],
+                  "body": ""
+                },
+                {
+                  "name": "404 — No encontrado",
+                  "originalRequest": { "method": "DELETE", "header": [], "url": "{{baseUrl}}/{{projectSlug}}/geo-events-orm/9999" },
+                  "status": "Not Found", "code": 404,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"Geo event not found\"\n}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Geo Events · GraphQL",
+          "description": "Mismo CRUD sobre `geo_events` via GraphQL con Strawberry.\n\nRutas: `api/graphql/router.py` → `api/graphql/resolvers/geo_events.py`.\n\n| Método | Cuándo usarlo |\n|--------|---------------|\n| `GET` | Solo queries (lectura) — parámetros en URL |\n| `POST` | Queries y mutations — body `graphql` |\n\nPlayground interactivo: `GET /layout_example/graphql`",
+          "item": [
+            {
+              "name": "GET — geoEvent (by ID)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "const json = pm.response.json();",
+                      "pm.test('no errors', () => pm.expect(json.errors).to.be.undefined);",
+                      "pm.test('data.geoEvent present', () => pm.expect(json.data.geoEvent).to.not.be.null);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/{{projectSlug}}/graphql?query=query GetGeoEvent($id: Int!) { geoEvent(id: $id) { id latitude longitude altitude accuracy speed heading eventType deviceId platform appVersion deviceModel recordedAt createdAt } }&variables={\"id\": {{geoEventId}}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["{{projectSlug}}", "graphql"],
+                  "query": [
+                    { "key": "query", "value": "query GetGeoEvent($id: Int!) { geoEvent(id: $id) { id latitude longitude altitude accuracy speed heading eventType deviceId platform appVersion deviceModel recordedAt createdAt } }" },
+                    { "key": "variables", "value": "{\"id\": {{geoEventId}}}" }
+                  ]
+                },
+                "description": "`GET /{projectSlug}/graphql?query=...&variables=...`\n\nQuery por GET — el query y las variables van como query params en la URL. Solo para lectura, no soporta mutations."
+              },
+              "response": [
+                {
+                  "name": "200 OK",
+                  "originalRequest": {
+                    "method": "GET", "header": [],
+                    "url": { "raw": "{{baseUrl}}/{{projectSlug}}/graphql?query=query GetGeoEvent($id: Int!) { geoEvent(id: $id) { id latitude longitude eventType platform recordedAt } }&variables={\"id\": 1}", "query": [{ "key": "query", "value": "query GetGeoEvent($id: Int!) { geoEvent(id: $id) { id latitude longitude eventType platform recordedAt } }" }, { "key": "variables", "value": "{\"id\": 1}" }] }
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"data\": {\n    \"geoEvent\": {\n      \"id\": 1,\n      \"latitude\": 19.4326,\n      \"longitude\": -99.1332,\n      \"eventType\": \"gps_ping\",\n      \"platform\": \"android\",\n      \"recordedAt\": \"2026-06-02T10:00:00+00:00\"\n    }\n  }\n}"
+                }
+              ]
+            },
+            {
+              "name": "POST — geoEvent (by ID)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "const json = pm.response.json();",
+                      "pm.test('no errors', () => pm.expect(json.errors).to.be.undefined);",
+                      "pm.test('data.geoEvent present', () => pm.expect(json.data.geoEvent).to.not.be.null);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "graphql",
+                  "graphql": {
+                    "query": "query GetGeoEvent($id: Int!) {\n  geoEvent(id: $id) {\n    id\n    userId\n    latitude\n    longitude\n    altitude\n    accuracy\n    speed\n    heading\n    eventType\n    deviceId\n    platform\n    appVersion\n    deviceModel\n    recordedAt\n    createdAt\n  }\n}",
+                    "variables": "{\n  \"id\": {{geoEventId}}\n}"
+                  }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/graphql",
+                "description": "`POST /{projectSlug}/graphql`\n\nQuery por PK. Usa variable `{{geoEventId}}` — ejecuta **createGeoEvent** primero.\n\n| Campo | Tipo |\n|-------|------|\n| `id` | `Int!` |\n\nRetorna `null` si no existe (sin 404 — comportamiento GraphQL estándar)."
+              },
+              "response": [
+                {
+                  "name": "200 OK — evento encontrado",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "graphql", "graphql": { "query": "query GetGeoEvent($id: Int!) {\n  geoEvent(id: $id) {\n    id\n    latitude\n    longitude\n    eventType\n    platform\n    recordedAt\n    createdAt\n  }\n}", "variables": "{\n  \"id\": 1\n}" } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/graphql"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"data\": {\n    \"geoEvent\": {\n      \"id\": 1,\n      \"latitude\": 19.4326,\n      \"longitude\": -99.1332,\n      \"eventType\": \"gps_ping\",\n      \"platform\": \"android\",\n      \"recordedAt\": \"2026-06-02T10:00:00+00:00\",\n      \"createdAt\": \"2026-06-02T10:00:01+00:00\"\n    }\n  }\n}"
+                },
+                {
+                  "name": "200 OK — evento no encontrado (null)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "graphql", "graphql": { "query": "query { geoEvent(id: 9999) { id } }", "variables": "" } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/graphql"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"data\": {\n    \"geoEvent\": null\n  }\n}"
+                }
+              ]
+            },
+            {
+              "name": "GET — geoEvents (list)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "const json = pm.response.json();",
+                      "pm.test('no errors', () => pm.expect(json.errors).to.be.undefined);",
+                      "pm.test('data.geoEvents is array', () => pm.expect(json.data.geoEvents).to.be.an('array'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/{{projectSlug}}/graphql?query=query ListGeoEvents($eventType: String, $limit: Int, $offset: Int) { geoEvents(eventType: $eventType, limit: $limit, offset: $offset) { id latitude longitude eventType platform deviceModel recordedAt } }&variables={\"eventType\": \"gps_ping\", \"limit\": 20, \"offset\": 0}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["{{projectSlug}}", "graphql"],
+                  "query": [
+                    { "key": "query", "value": "query ListGeoEvents($eventType: String, $limit: Int, $offset: Int) { geoEvents(eventType: $eventType, limit: $limit, offset: $offset) { id latitude longitude eventType platform deviceModel recordedAt } }" },
+                    { "key": "variables", "value": "{\"eventType\": \"gps_ping\", \"limit\": 20, \"offset\": 0}" }
+                  ]
+                },
+                "description": "`GET /{projectSlug}/graphql?query=...&variables=...`\n\nListado con filtros opcionales via GET. Modifica los `variables` en el query param para filtrar."
+              },
+              "response": [
+                {
+                  "name": "200 OK — lista",
+                  "originalRequest": {
+                    "method": "GET", "header": [],
+                    "url": { "raw": "{{baseUrl}}/{{projectSlug}}/graphql?query=query { geoEvents(limit: 20, offset: 0) { id latitude longitude eventType platform recordedAt } }&variables=", "query": [{ "key": "query", "value": "query { geoEvents(limit: 20, offset: 0) { id latitude longitude eventType platform recordedAt } }" }, { "key": "variables", "value": "" }] }
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"data\": {\n    \"geoEvents\": [\n      {\n        \"id\": 2,\n        \"latitude\": 19.4327,\n        \"longitude\": -99.1333,\n        \"eventType\": \"gps_ping\",\n        \"platform\": \"android\",\n        \"recordedAt\": \"2026-06-02T10:00:05+00:00\"\n      },\n      {\n        \"id\": 1,\n        \"latitude\": 19.4326,\n        \"longitude\": -99.1332,\n        \"eventType\": \"gps_ping\",\n        \"platform\": \"android\",\n        \"recordedAt\": \"2026-06-02T10:00:00+00:00\"\n      }\n    ]\n  }\n}"
+                }
+              ]
+            },
+            {
+              "name": "POST — geoEvents (list)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "const json = pm.response.json();",
+                      "pm.test('no errors', () => pm.expect(json.errors).to.be.undefined);",
+                      "pm.test('data.geoEvents is array', () => pm.expect(json.data.geoEvents).to.be.an('array'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "graphql",
+                  "graphql": {
+                    "query": "query ListGeoEvents($eventType: String, $userId: String, $limit: Int, $offset: Int) {\n  geoEvents(\n    eventType: $eventType\n    userId: $userId\n    limit: $limit\n    offset: $offset\n  ) {\n    id\n    latitude\n    longitude\n    eventType\n    platform\n    deviceModel\n    recordedAt\n  }\n}",
+                    "variables": "{\n  \"eventType\": \"gps_ping\",\n  \"userId\": null,\n  \"limit\": 20,\n  \"offset\": 0\n}"
+                  }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/graphql",
+                "description": "`POST /{projectSlug}/graphql`\n\n**Variables opcionales:** `userId`, `eventType`, `limit` (default 50), `offset` (default 0).\n\nOrdenado por `recorded_at DESC`."
+              },
+              "response": [
+                {
+                  "name": "200 OK — lista paginada",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "graphql", "graphql": { "query": "query { geoEvents(limit: 20, offset: 0) { id latitude longitude eventType platform recordedAt } }", "variables": "" } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/graphql"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"data\": {\n    \"geoEvents\": [\n      {\n        \"id\": 2,\n        \"latitude\": 19.4327,\n        \"longitude\": -99.1333,\n        \"eventType\": \"gps_ping\",\n        \"platform\": \"android\",\n        \"recordedAt\": \"2026-06-02T10:00:05+00:00\"\n      },\n      {\n        \"id\": 1,\n        \"latitude\": 19.4326,\n        \"longitude\": -99.1332,\n        \"eventType\": \"gps_ping\",\n        \"platform\": \"android\",\n        \"recordedAt\": \"2026-06-02T10:00:00+00:00\"\n      }\n    ]\n  }\n}"
+                }
+              ]
+            },
+            {
+              "name": "Mutation — createGeoEvent",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "const json = pm.response.json();",
+                      "pm.test('no errors', () => pm.expect(json.errors).to.be.undefined);",
+                      "const event = json.data.createGeoEvent;",
+                      "pm.test('id present', () => pm.expect(event.id).to.be.a('number'));",
+                      "pm.collectionVariables.set('geoEventId', event.id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "graphql",
+                  "graphql": {
+                    "query": "mutation CreateGeoEvent($input: GeoEventInput!) {\n  createGeoEvent(input: $input) {\n    id\n    latitude\n    longitude\n    eventType\n    platform\n    deviceModel\n    recordedAt\n    createdAt\n  }\n}",
+                    "variables": "{\n  \"input\": {\n    \"latitude\": 19.4326,\n    \"longitude\": -99.1332,\n    \"altitude\": 2240.0,\n    \"accuracy\": 5.0,\n    \"speed\": 1.4,\n    \"heading\": 90.0,\n    \"eventType\": \"gps_ping\",\n    \"deviceId\": \"device-graphql-001\",\n    \"platform\": \"android\",\n    \"appVersion\": \"1.0.0\",\n    \"deviceModel\": \"Pixel 8\",\n    \"recordedAt\": \"2026-06-02T14:00:00Z\"\n  }\n}"
+                  }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/graphql",
+                "description": "`POST /{projectSlug}/graphql`\n\nGuarda `geoEventId` en Tests para usarlo en las demás operaciones.\n\n**Input requerido:** `latitude`, `longitude`. El resto es opcional."
+              },
+              "response": [
+                {
+                  "name": "200 OK — evento creado",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "graphql", "graphql": { "query": "mutation CreateGeoEvent($input: GeoEventInput!) {\n  createGeoEvent(input: $input) {\n    id\n    latitude\n    longitude\n    eventType\n    platform\n    recordedAt\n    createdAt\n  }\n}", "variables": "{\n  \"input\": {\n    \"latitude\": 19.4326,\n    \"longitude\": -99.1332,\n    \"eventType\": \"gps_ping\",\n    \"platform\": \"android\",\n    \"deviceModel\": \"Pixel 8\"\n  }\n}" } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/graphql"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"data\": {\n    \"createGeoEvent\": {\n      \"id\": 4,\n      \"latitude\": 19.4326,\n      \"longitude\": -99.1332,\n      \"eventType\": \"gps_ping\",\n      \"platform\": \"android\",\n      \"recordedAt\": \"2026-06-02T14:00:00+00:00\",\n      \"createdAt\": \"2026-06-02T14:00:01+00:00\"\n    }\n  }\n}"
+                }
+              ]
+            },
+            {
+              "name": "Mutation — deleteGeoEvent",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "const json = pm.response.json();",
+                      "pm.test('no errors', () => pm.expect(json.errors).to.be.undefined);",
+                      "pm.test('deleteGeoEvent true', () => pm.expect(json.data.deleteGeoEvent).to.be.true);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "graphql",
+                  "graphql": {
+                    "query": "mutation DeleteGeoEvent($id: Int!) {\n  deleteGeoEvent(id: $id)\n}",
+                    "variables": "{\n  \"id\": {{geoEventId}}\n}"
+                  }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/graphql",
+                "description": "`POST /{projectSlug}/graphql`\n\nRetorna `true` si se eliminó, `false` si no existía.\n\nA diferencia de REST (404), GraphQL siempre responde 200 — el resultado está en `data.deleteGeoEvent`."
+              },
+              "response": [
+                {
+                  "name": "200 OK — eliminado",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "graphql", "graphql": { "query": "mutation DeleteGeoEvent($id: Int!) {\n  deleteGeoEvent(id: $id)\n}", "variables": "{\n  \"id\": 4\n}" } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/graphql"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"data\": {\n    \"deleteGeoEvent\": true\n  }\n}"
+                },
+                {
+                  "name": "200 OK — no existía",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "graphql", "graphql": { "query": "mutation DeleteGeoEvent($id: Int!) {\n  deleteGeoEvent(id: $id)\n}", "variables": "{\n  \"id\": 9999\n}" } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/graphql"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"data\": {\n    \"deleteGeoEvent\": false\n  }\n}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Storage",
+          "description": "Upload de archivos via pre-signed URL (S3/R2). Flujo:\n1. `POST /storage/upload-url` → recibe `upload_url` + `object_key`\n2. Cliente hace `PUT {upload_url}` con el archivo directo a R2/S3\n3. `POST /storage/confirm` con `object_key` → registra metadata en Postgres\n\n`user_id` siempre sale del JWT — el cliente nunca lo envía.\n\nRutas: `api/storage.py` → `domain/storage_service.py` → `infra/repositories/file_orm_repo.py`",
+          "item": [
+            {
+              "name": "Get upload URL",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "const json = pm.response.json();",
+                      "pm.test('upload_url present', () => pm.expect(json.upload_url).to.be.a('string'));",
+                      "pm.test('object_key present', () => pm.expect(json.object_key).to.be.a('string'));",
+                      "pm.collectionVariables.set('objectKey', json.object_key);",
+                      "pm.collectionVariables.set('uploadUrl', json.upload_url);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+                },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"file_name\": \"photo.jpg\",\n  \"content_type\": \"image/jpeg\",\n  \"size_bytes\": 204800,\n  \"is_public\": false,\n  \"expires_in\": 3600\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/storage/upload-url",
+                "description": "`POST /{projectSlug}/storage/upload-url`\n\nGenera una presigned PUT URL para subir directamente a R2/S3.\n\n| Campo | Tipo | Requerido |\n|-------|------|-----------|\n| `file_name` | string | ✓ |\n| `content_type` | string | ✓ |\n| `size_bytes` | int | — |\n| `is_public` | bool | — (default false) |\n| `expires_in` | int | — (default 3600 seg) |\n\nEl `object_key` retornado tiene formato `{project_slug}/{user_id}/{uuid}.ext`."
+              },
+              "response": [
+                {
+                  "name": "200 OK — presigned URL generada",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"file_name\": \"photo.jpg\",\n  \"content_type\": \"image/jpeg\",\n  \"size_bytes\": 204800,\n  \"is_public\": false,\n  \"expires_in\": 3600\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/storage/upload-url"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"upload_url\": \"https://<account>.r2.cloudflarestorage.com/my-bucket/layout_example/64f1a2b3.../a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=3600&...\",\n  \"object_key\": \"layout_example/64f1a2b3c4d5e6f7a8b9c0d1/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg\",\n  \"expires_in\": 3600\n}"
+                },
+                {
+                  "name": "401 — Token inválido",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"file_name\": \"photo.jpg\",\n  \"content_type\": \"image/jpeg\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/storage/upload-url"
+                  },
+                  "status": "Unauthorized", "code": 401,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"Invalid token\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "PUT — Upload file to R2/S3 (Step 2)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "pm.test('body empty', () => pm.expect(pm.response.text()).to.eql(''));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": { "type": "noauth" },
+                "method": "PUT",
+                "header": [
+                  { "key": "Content-Type", "value": "image/jpeg", "description": "Debe coincidir exactamente con el content_type enviado en Step 1" }
+                ],
+                "body": {
+                  "mode": "file",
+                  "file": { "src": "" }
+                },
+                "url": "{{uploadUrl}}",
+                "description": "**Step 2 del flujo de upload** — PUT directo a R2/S3 usando la presigned URL del Step 1.\n\n⚠️ **No pases Authorization header** — la URL ya está firmada con las credenciales de R2/S3.\n\n⚠️ **Content-Type debe coincidir exactamente** con el `content_type` enviado en Step 1 (e.g. `image/jpeg`). Si no coincide, R2 responde `403 SignatureDoesNotMatch`.\n\n### Setup en Postman\n1. URL: `{{uploadUrl}}` (se llena automáticamente si ejecutaste Step 1)\n2. Auth: `No Auth`\n3. Header: `Content-Type: image/jpeg`\n4. Body → `binary` → selecciona el archivo\n\n### Respuesta esperada\n- `200 OK` con body vacío → upload exitoso\n- `403 SignatureDoesNotMatch` → Content-Type no coincide con Step 1\n- `403 AccessDenied` → URL expirada o inválida"
+              },
+              "response": [
+                {
+                  "name": "200 OK — archivo subido",
+                  "originalRequest": {
+                    "method": "PUT",
+                    "header": [{ "key": "Content-Type", "value": "image/jpeg" }],
+                    "body": { "mode": "file", "file": { "src": "" } },
+                    "url": "{{uploadUrl}}"
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "text",
+                  "header": [],
+                  "cookie": [],
+                  "body": ""
+                },
+                {
+                  "name": "403 — Content-Type no coincide (SignatureDoesNotMatch)",
+                  "originalRequest": {
+                    "method": "PUT",
+                    "header": [{ "key": "Content-Type", "value": "application/octet-stream" }],
+                    "body": { "mode": "file", "file": { "src": "" } },
+                    "url": "{{uploadUrl}}"
+                  },
+                  "status": "Forbidden", "code": 403,
+                  "_postman_previewlanguage": "xml",
+                  "header": [{ "key": "Content-Type", "value": "application/xml" }],
+                  "cookie": [],
+                  "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error>\n  <Code>SignatureDoesNotMatch</Code>\n  <Message>The request signature we calculated does not match the signature you provided.</Message>\n</Error>"
+                },
+                {
+                  "name": "403 — URL expirada (RequestTimeTooSkewed)",
+                  "originalRequest": {
+                    "method": "PUT",
+                    "header": [{ "key": "Content-Type", "value": "image/jpeg" }],
+                    "body": { "mode": "file", "file": { "src": "" } },
+                    "url": "{{uploadUrl}}"
+                  },
+                  "status": "Forbidden", "code": 403,
+                  "_postman_previewlanguage": "xml",
+                  "header": [{ "key": "Content-Type", "value": "application/xml" }],
+                  "cookie": [],
+                  "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error>\n  <Code>RequestTimeTooSkewed</Code>\n  <Message>The difference between the request time and the current time is too large.</Message>\n</Error>"
+                }
+              ]
+            },
+            {
+              "name": "Confirm upload",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                      "const json = pm.response.json();",
+                      "pm.test('id present', () => pm.expect(json.id).to.be.a('number'));",
+                      "pm.test('object_key matches', () => pm.expect(json.object_key).to.be.a('string'));",
+                      "pm.collectionVariables.set('fileId', json.id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+                },
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"object_key\": \"{{objectKey}}\",\n  \"file_name\": \"photo.jpg\",\n  \"content_type\": \"image/jpeg\",\n  \"size_bytes\": 204800,\n  \"is_public\": false\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": "{{baseUrl}}/{{projectSlug}}/storage/confirm",
+                "description": "`POST /{projectSlug}/storage/confirm`\n\nRegistra la metadata del archivo en Postgres después de que el cliente subió el archivo a R2/S3.\n\nEl servicio valida que el `object_key` empiece con `{project_slug}/{user_id}/` — rechaza cualquier intento cross-tenant.\n\nGuarda `fileId` en Tests para usarlo en List y Delete."
+              },
+              "response": [
+                {
+                  "name": "201 Created — metadata registrada",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"object_key\": \"layout_example/64f1a2b3c4d5e6f7a8b9c0d1/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg\",\n  \"file_name\": \"photo.jpg\",\n  \"content_type\": \"image/jpeg\",\n  \"size_bytes\": 204800,\n  \"is_public\": false\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/storage/confirm"
+                  },
+                  "status": "Created", "code": 201,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"id\": 1,\n  \"project_slug\": \"layout_example\",\n  \"user_id\": \"64f1a2b3-c4d5-e6f7-a8b9-c0d1e2f3a4b5\",\n  \"storage_provider\": \"r2\",\n  \"bucket\": \"my-bucket\",\n  \"object_key\": \"layout_example/64f1a2b3c4d5e6f7a8b9c0d1/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg\",\n  \"url\": null,\n  \"file_name\": \"photo.jpg\",\n  \"content_type\": \"image/jpeg\",\n  \"size_bytes\": 204800,\n  \"is_public\": false,\n  \"uploaded_at\": \"2026-06-02T15:00:00Z\",\n  \"deleted_at\": null\n}"
+                },
+                {
+                  "name": "403 — object_key inválido (cross-tenant)",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+                    "body": { "mode": "raw", "raw": "{\n  \"object_key\": \"otro_project/otro_user/archivo.jpg\",\n  \"file_name\": \"photo.jpg\",\n  \"content_type\": \"image/jpeg\"\n}", "options": { "raw": { "language": "json" } } },
+                    "url": "{{baseUrl}}/{{projectSlug}}/storage/confirm"
+                  },
+                  "status": "Forbidden", "code": 403,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"Invalid object_key for this user\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "List files",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                      "pm.test('is array', () => pm.expect(pm.response.json()).to.be.an('array'));",
+                      "const files = pm.response.json();",
+                      "pm.test('no deleted files', () => {",
+                      "    files.forEach(f => pm.expect(f.deleted_at).to.be.null);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/{{projectSlug}}/storage/files?limit=50&offset=0",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["{{projectSlug}}", "storage", "files"],
+                  "query": [
+                    { "key": "limit",  "value": "50", "disabled": false, "description": "Máximo de resultados (default 50)" },
+                    { "key": "offset", "value": "0",  "disabled": false, "description": "Paginación (default 0)" }
+                  ]
+                },
+                "description": "`GET /{projectSlug}/storage/files`\n\nRetorna solo los archivos del usuario autenticado dentro del proyecto. Los archivos con `deleted_at != null` no aparecen (soft delete).\n\nOrdenado por `uploaded_at DESC`."
+              },
+              "response": [
+                {
+                  "name": "200 OK — lista de archivos",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+                    "url": { "raw": "{{baseUrl}}/{{projectSlug}}/storage/files?limit=50&offset=0", "query": [{ "key": "limit", "value": "50" }, { "key": "offset", "value": "0" }] }
+                  },
+                  "status": "OK", "code": 200,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "[\n  {\n    \"id\": 2,\n    \"project_slug\": \"layout_example\",\n    \"user_id\": \"64f1a2b3-c4d5-e6f7-a8b9-c0d1e2f3a4b5\",\n    \"storage_provider\": \"r2\",\n    \"bucket\": \"my-bucket\",\n    \"object_key\": \"layout_example/64f1a2b3c4d5e6f7a8b9c0d1/b2c3d4e5-f6a7-8901-bcde-f12345678901.png\",\n    \"url\": null,\n    \"file_name\": \"avatar.png\",\n    \"content_type\": \"image/png\",\n    \"size_bytes\": 51200,\n    \"is_public\": true,\n    \"uploaded_at\": \"2026-06-02T15:05:00Z\",\n    \"deleted_at\": null\n  },\n  {\n    \"id\": 1,\n    \"project_slug\": \"layout_example\",\n    \"user_id\": \"64f1a2b3-c4d5-e6f7-a8b9-c0d1e2f3a4b5\",\n    \"storage_provider\": \"r2\",\n    \"bucket\": \"my-bucket\",\n    \"object_key\": \"layout_example/64f1a2b3c4d5e6f7a8b9c0d1/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg\",\n    \"url\": null,\n    \"file_name\": \"photo.jpg\",\n    \"content_type\": \"image/jpeg\",\n    \"size_bytes\": 204800,\n    \"is_public\": false,\n    \"uploaded_at\": \"2026-06-02T15:00:00Z\",\n    \"deleted_at\": null\n  }\n]"
+                }
+              ]
+            },
+            {
+              "name": "Delete file",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status 204', () => pm.response.to.have.status(204));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+                },
+                "method": "DELETE",
+                "header": [],
+                "url": "{{baseUrl}}/{{projectSlug}}/storage/file/{{fileId}}",
+                "description": "`DELETE /{projectSlug}/storage/file/{file_id}`\n\n**Soft delete** — marca `deleted_at = NOW()` en Postgres y elimina el archivo físico de R2/S3.\n\nEl registro permanece en la DB para auditoría pero deja de aparecer en `GET /storage/files`.\n\n| Status | Caso |\n|--------|------|\n| 204 | Eliminado correctamente |\n| 403 | El archivo pertenece a otro usuario o proyecto |\n| 404 | Archivo no encontrado o ya eliminado |"
+              },
+              "response": [
+                {
+                  "name": "204 No Content — eliminado",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+                    "url": "{{baseUrl}}/{{projectSlug}}/storage/file/1"
+                  },
+                  "status": "No Content", "code": 204,
+                  "_postman_previewlanguage": "json",
+                  "header": [],
+                  "cookie": [],
+                  "body": ""
+                },
+                {
+                  "name": "404 — No encontrado o ya eliminado",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+                    "url": "{{baseUrl}}/{{projectSlug}}/storage/file/9999"
+                  },
+                  "status": "Not Found", "code": 404,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"File not found\"\n}"
+                },
+                {
+                  "name": "403 — Acceso denegado (cross-tenant)",
+                  "originalRequest": {
+                    "method": "DELETE",
+                    "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+                    "url": "{{baseUrl}}/{{projectSlug}}/storage/file/99"
+                  },
+                  "status": "Forbidden", "code": 403,
+                  "_postman_previewlanguage": "json",
+                  "header": [{ "key": "Content-Type", "value": "application/json" }],
+                  "cookie": [],
+                  "body": "{\n  \"detail\": \"Access denied\"\n}"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

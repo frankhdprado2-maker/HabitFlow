@@ -1,0 +1,83 @@
+[project]
+name = "platform-api"
+version = "0.1.0"
+description = "Multi-project FastAPI platform"
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    # FastAPI
+    "fastapi>=0.116.1",
+    "uvicorn[standard]>=0.35.0",
+    # Configuration
+    "pydantic>=2.11.9",
+    "pydantic-settings>=2.11.0",
+    "email-validator>=2.2.0",
+    # HTTP Client
+    "httpx>=0.28.1",
+    # PostgreSQL
+    "sqlalchemy>=2.0.43",
+    "asyncpg>=0.30.0",
+    "alembic>=1.16.5",
+    "greenlet>=3.0.0",
+    # MongoDB
+    "pymongo>=4.15.0",
+    # Redis
+    "redis[hiredis]>=6.4.0",
+    # OAuth 2.1 / OIDC
+    "authlib>=1.6.4",
+    "pyjwt[crypto]>=2.10.1",
+    # File Uploads
+    "python-multipart>=0.0.20",
+    # Cloudflare R2 (S3 compatible)
+    "boto3>=1.40.30",
+    # High-performance JSON
+    "orjson>=3.11.3",
+    "motor>=3.7.1",
+    "strawberry-graphql[fastapi]>=0.316.0",
+    "aioboto3>=15.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.13.2",
+    "mypy>=1.18.2",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv]
+package = true

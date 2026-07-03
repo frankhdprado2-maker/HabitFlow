@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: habitflow-platform-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHONPATH
+        value: src
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: "false"
