@@ -28,8 +28,7 @@ class AuthRepository @Inject constructor(
     suspend fun register(name: String, email: String, password: String, username: String, goal: String): AppResult<Unit> =
         runNetwork {
             val cleanEmail = email.trim()
-            authApi.register(RegisterRequest(cleanEmail, password))
-            val tokens = authApi.login(LoginRequest(cleanEmail, password))
+            val tokens = authApi.register(RegisterRequest(cleanEmail, password))
             tokenManager.save(tokens.accessToken, tokens.refreshToken)
         }
 

@@ -1,13 +1,7 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException
 
 from app.projects.c21200065.api.deps import get_auth_service, get_current_user
-from app.projects.c21200065.api.schemas import (
-    GoogleLoginRequest,
-    LoginRequest,
-    RefreshTokenRequest,
-    RegisterResponse,
-    TokenResponse,
-)
+from app.projects.c21200065.api.schemas import GoogleLoginRequest, LoginRequest, RefreshTokenRequest, TokenResponse
 from app.projects.c21200065.domain.auth_service import AuthService
 from app.projects.c21200065.domain.exceptions import (
     InvalidCredentialsError,
@@ -30,11 +24,12 @@ async def login(payload: LoginRequest, service: AuthService = Depends(get_auth_s
         raise HTTPException(status_code=401, detail="Invalid credentials") from None
 
 
-@router.post("/register", response_model=RegisterResponse)
+@router.post("/register", response_model=TokenResponse)
 async def register(payload: LoginRequest, service: AuthService = Depends(get_auth_service)):
     try:
         user_id = await service.register(payload.email, payload.password)
-        return RegisterResponse(user_id=user_id)
+        refresh_token = await service.create_refresh_token(user_id, payload.email, payload.device_id)
+        return TokenResponse(access_token=create_token(user_id, payload.email), refresh_token=refresh_token)
     except UserAlreadyExistsError:
         raise HTTPException(status_code=400, detail="User already exists") from None
 
