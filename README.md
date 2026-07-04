@@ -23,9 +23,18 @@ HabitFlow/
 ├─ app/                 # App Android Kotlin/Compose
 ├─ backend/             # Backend FastAPI para Render
 ├─ gradle/              # Gradle wrapper/config
-├─ README.md            # Este archivo
+├─ README.md            # Resumen principal del proyecto
+├─ MANUAL_CODIGO.md     # Explicacion detallada del codigo
 └─ local.properties     # Configuracion local Android, no se sube a Git
 ```
+
+## Manual de Explicacion del Codigo
+
+Para entender la arquitectura interna del proyecto, revisa el archivo:
+
+[MANUAL_CODIGO.md](MANUAL_CODIGO.md)
+
+Ese manual explica el codigo por capas: Android, navegacion, ViewModels, repositorios, Room, autenticacion, voz/IA, sincronizacion, backend FastAPI, endpoints, storage, GraphQL y pendientes actuales.
 
 ## Stack Android
 
@@ -217,57 +226,3 @@ Desde la raiz del proyecto:
 ```
 
 APK generado:
-
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
-
-Instalar por ADB:
-
-```powershell
-C:\Users\Frankie\AppData\Local\Android\Sdk\platform-tools\adb.exe install -r C:\Users\Frankie\Desktop\HabitFlow\app\build\outputs\apk\debug\app-debug.apk
-```
-
-Si `adb devices` no muestra el celular, activa Depuracion USB y acepta el permiso en el telefono.
-
-## Ejecutar Backend Local
-
-Desde `backend/`:
-
-```powershell
-pip install -r requirements.txt
-$env:PYTHONPATH="src"
-uvicorn app.main:app --reload
-```
-
-URL local:
-
-```text
-http://localhost:8000/c21200065/health
-```
-
-Si usas el emulador Android contra backend local, `BASE_URL` debe ser:
-
-```properties
-BASE_URL=http://10.0.2.2:8000/c21200065/
-```
-
-Si usas celular real, no uses `10.0.2.2`; usa una URL publica como Render.
-
-## Pendientes
-
-- Mejorar Google Sign-In cuando Google Cloud quede totalmente configurado.
-- Sincronizar habitos como entidad propia en backend, no solo eventos.
-- Editar perfil real.
-- Crear/borrar cuenta real en backend desde la app.
-- Mejorar estadisticas con datos historicos reales.
-- Agregar pruebas automatizadas Android/backend.
-- Preparar build release firmado.
-- Publicacion por Google Play testing interno.
-
-## Seguridad
-
-- No commitear `local.properties`.
-- No commitear `backend/credentials/*.env`.
-- Rotar cualquier API key que haya sido compartida accidentalmente.
-- Mantener secretos solo en Render Environment o en archivos locales ignorados por Git.
