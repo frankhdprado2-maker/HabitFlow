@@ -31,13 +31,32 @@ async def _ensure_auth_profile_columns(connection):
         await connection.execute(text(statement))
 
 
+def _routes_for_prefix(prefix: str) -> list[str]:
+    routes = []
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", None)
+        if not path or not methods or not path.startswith(prefix):
+            continue
+
+        relative_path = path.removeprefix(prefix) or "/"
+        for method in sorted(methods):
+            if method in {"HEAD", "OPTIONS"}:
+                continue
+            routes.append(f"{method} {relative_path}")
+    return routes
+
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def landing():
     cards = ""
+    project_routes = []
     for project in registry:
+        routes = _routes_for_prefix(project["prefix"])
+        project_routes.append(routes)
         route_rows = "".join(
             f'<tr><td class="method {r.split()[0]}">{r.split()[0]}</td><td class="path">{project["prefix"]}{r.split(" ", 1)[1]}</td></tr>'
-            for r in project["routes"]
+            for r in routes
         )
         cards += f"""
         <div class="card">
@@ -156,7 +175,7 @@ async def landing():
     </div>
     <div class="stat-divider"></div>
     <div class="stat">
-      <span class="stat-value">{sum(len(p["routes"]) for p in registry)}</span>
+      <span class="stat-value">{sum(len(routes) for routes in project_routes)}</span>
       <span class="stat-label">Endpoints</span>
     </div>
   </div>
