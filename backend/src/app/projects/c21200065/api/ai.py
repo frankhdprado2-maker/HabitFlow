@@ -87,6 +87,22 @@ class VoiceTranscriptionResponse(BaseModel):
     language: str = "es"
 
 
+class VoiceTranscriptionStatusResponse(BaseModel):
+    configured: bool
+    provider: str
+    model: str
+
+
+@router.get("/transcription-status", response_model=VoiceTranscriptionStatusResponse)
+async def transcription_status(current_user=Depends(get_current_user)) -> VoiceTranscriptionStatusResponse:
+    del current_user
+    return VoiceTranscriptionStatusResponse(
+        configured=bool(settings.STT_API_KEY),
+        provider=settings.STT_BASE_URL.rstrip("/"),
+        model=settings.STT_MODEL,
+    )
+
+
 @router.post("/transcribe", response_model=VoiceTranscriptionResponse)
 async def transcribe_audio(
     audio: UploadFile = File(...),
@@ -219,11 +235,11 @@ async def _transcribe_with_stt_provider(
     content_type: str,
     language: str,
 ) -> str:
-    api_key = settings.STT_API_KEY or settings.LLM_API_KEY
+    api_key = settings.STT_API_KEY
     if not api_key:
         raise HTTPException(
             status_code=503,
-            detail="Missing STT_API_KEY or LLM_API_KEY for audio transcription",
+            detail="Missing STT_API_KEY for audio transcription",
         )
 
     base_url = settings.STT_BASE_URL.rstrip("/")

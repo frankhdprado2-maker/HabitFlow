@@ -125,8 +125,8 @@ fun <T> networkError(error: Throwable): AppResult<T> {
             400 -> "La cuenta ya existe o la solicitud no es valida."
             401 -> "Credenciales invalidas o token rechazado."
             422 -> "Email o datos invalidos. Revisa el correo y la contrasena."
-            502 -> "La transcripcion de voz fallo en el proveedor de IA."
-            503 -> "Falta configurar la clave de transcripcion en Render."
+            502 -> "El proveedor de transcripcion rechazo el audio o la clave STT."
+            503 -> "Falta configurar STT_API_KEY en Render para transcribir voz."
             500 -> "El servidor fallo. Revisa las variables en Render."
             else -> "Error del servidor HTTP ${error.code()}."
         }
