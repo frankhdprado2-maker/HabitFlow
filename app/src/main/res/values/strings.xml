@@ -1,3 +1,69 @@
 <resources>
     <string name="app_name">HabitFlow</string>
+    <string name="home">Inicio</string>
+    <string name="progress">Progreso</string>
+    <string name="history">Historial</string>
+    <string name="profile">Perfil</string>
+    <string name="settings">Configuración</string>
+    <string name="habit">Hábito</string>
+    <string name="habits">Hábitos</string>
+    <string name="category">Categoría</string>
+    <string name="frequency">Frecuencia</string>
+    <string name="password">Contraseña</string>
+    <string name="session">Sesión</string>
+    <string name="stats">Estadísticas</string>
+    <string name="biometrics">Biometría</string>
+    <string name="spanish_peru">Español (Perú)</string>
+    <string name="offline">Sin conexión</string>
+    <string name="transcription">Transcripción</string>
+    <string name="confirmation">Confirmación</string>
+    <string name="next">Próximo</string>
+    <string name="last">Último</string>
+    <string name="streak">Racha</string>
+    <string name="no_habits_yet">Aún no tienes hábitos</string>
+    <string name="voice_permission">Activa el permiso de micrófono para dictar por voz.</string>
+    <string name="manual_habit">Registrar manualmente</string>
+    <string name="open_voice_assistant">Abrir asistente de voz</string>
+    <string name="continue_with_google">Continuar con Google</string>
+    <string name="google_icon">Icono de Google</string>
+    <string name="show_password">Mostrar contraseña</string>
+    <string name="hide_password">Ocultar contraseña</string>
+    <string name="microphone">Micrófono</string>
+    <string name="cancel">Cancelar</string>
+    <string name="retry">Reintentar</string>
+    <string name="edit">Editar</string>
+    <string name="delete">Eliminar</string>
+    <string name="complete">Completar</string>
+    <string name="undo">Deshacer</string>
+    <string name="open_settings">Abrir ajustes</string>
+    <string name="google_missing_web_client_id">Falta configurar GOOGLE_WEB_CLIENT_ID en local.properties.</string>
+    <string name="google_incompatible_credential">Google no devolvió una credencial compatible.</string>
+    <string name="google_missing_token">Google no devolvió token. Revisa el Web Client ID.</string>
+    <string name="google_cancelled">Inicio con Google cancelado.</string>
+    <string name="google_no_credentials">No hay cuentas de Google disponibles en este dispositivo.</string>
+    <string name="google_token_parse_error">Google devolvió un token que no se pudo leer.</string>
+    <string name="google_open_error">No se pudo abrir Google (%1$s).</string>
+    <string name="google_generic_error">No se pudo iniciar sesión con Google (%1$s).</string>
+    <string name="home_greeting">Hola, %1$s</string>
+
+    <plurals name="days_count">
+        <item quantity="one">%d día</item>
+        <item quantity="other">%d días</item>
+    </plurals>
+    <plurals name="habits_count">
+        <item quantity="one">%d hábito</item>
+        <item quantity="other">%d hábitos</item>
+    </plurals>
+    <plurals name="events_count">
+        <item quantity="one">%d evento</item>
+        <item quantity="other">%d eventos</item>
+    </plurals>
+    <plurals name="achievements_count">
+        <item quantity="one">%d logro</item>
+        <item quantity="other">%d logros</item>
+    </plurals>
+    <plurals name="minutes_count">
+        <item quantity="one">%d minuto</item>
+        <item quantity="other">%d minutos</item>
+    </plurals>
 </resources>

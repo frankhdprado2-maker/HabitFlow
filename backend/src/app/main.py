@@ -1,23 +1,43 @@
+# ruff: noqa: E501
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from sqlalchemy import text
 
 from app.core.discovery import load_projects, registry
+from app.projects.c21200065.infra import orm as _orm  # noqa: F401
 from app.projects.c21200065.infra.db.postgres import engine
-from app.projects.c21200065.infra.orm import (
-    AuthRefreshTokenORM,
-    AuthUserORM,
-    CosmeticCatalogORM,
-    FileORM,
-    GeoEventORM,
-    UserCosmeticORM,
-)
 from app.projects.c21200065.infra.orm.base import Base
+from app.projects.c21200065.infra.settings import settings
 
 app = FastAPI(title="Platform API", version="1.0.0")
+allowed_origins = [
+    origin.strip()
+    for origin in settings.CORS_ALLOWED_ORIGINS.split(",")
+    if origin.strip()
+]
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 print("STARTING APP")
 load_projects(app)
+
+
+@app.get("/health")
+async def root_health():
+    return {
+        "status": "ok",
+        "service": "habitflow-platform-api",
+        "project": "c21200065",
+        "environment": settings.APP_ENV,
+    }
 
 
 @app.on_event("startup")
@@ -31,11 +51,19 @@ async def _ensure_auth_profile_columns(connection):
     for statement in (
         "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS name TEXT",
         "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS username TEXT",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS bio TEXT",
         "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS goal TEXT",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS primary_goal TEXT",
         "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS timezone TEXT",
         "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS avatar_url TEXT",
         "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS avatar_key TEXT",
         "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS categories TEXT",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS preferred_categories TEXT",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR(16)",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS accent_theme VARCHAR(16)",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS voice_response_enabled BOOLEAN",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS locale VARCHAR(16)",
     ):
         await connection.execute(text(statement))
 

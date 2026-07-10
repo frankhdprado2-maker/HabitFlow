@@ -82,16 +82,31 @@ class AuthRepository @Inject constructor(
         username: String,
         goal: String,
         avatarKey: String? = null,
-        categories: List<String> = emptyList()
+        categories: List<String> = emptyList(),
+        bio: String = "",
+        themeMode: String = "system",
+        accentTheme: String = "mint",
+        voiceResponseEnabled: Boolean = true,
+        onboardingCompleted: Boolean = true,
+        locale: String = "es-PE"
     ): AppResult<User> =
         runNetwork {
+            val cleanGoal = goal.trim()
             val user = authApi.updateMe(
                 ProfileUpdateRequest(
                     name = name.trim(),
                     username = username.trim().ifBlank { null },
-                    goal = goal.trim().ifBlank { null },
+                    bio = bio.trim().ifBlank { null },
+                    goal = cleanGoal.ifBlank { null },
+                    primaryGoal = cleanGoal.ifBlank { null },
                     avatarKey = avatarKey,
-                    categories = categories
+                    categories = categories,
+                    preferredCategories = categories,
+                    onboardingCompleted = onboardingCompleted,
+                    themeMode = themeMode,
+                    accentTheme = accentTheme,
+                    voiceResponseEnabled = voiceResponseEnabled,
+                    locale = locale
                 )
             ).toDomain()
             userProfileDao.upsert(user.toEntity())

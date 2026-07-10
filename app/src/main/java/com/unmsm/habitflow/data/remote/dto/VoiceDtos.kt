@@ -75,3 +75,37 @@ data class VoiceTranscriptionResponse(
     val transcript: String,
     val language: String = "es"
 )
+
+@JsonClass(generateAdapter = true)
+data class VoiceConversationUserContextDto(
+    @Json(name = "first_name") val firstName: String? = null,
+    @Json(name = "existing_habits") val existingHabits: List<VoiceHabitContextDto> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class VoiceConversationActionDto(
+    val type: String,
+    val payload: Map<String, String?> = emptyMap()
+)
+
+@JsonClass(generateAdapter = true)
+data class VoiceConversationRequest(
+    @Json(name = "session_id") val sessionId: String? = null,
+    val text: String,
+    val locale: String = "es-PE",
+    val timezone: String = "America/Lima",
+    @Json(name = "user_context") val userContext: VoiceConversationUserContextDto = VoiceConversationUserContextDto(),
+    @Json(name = "pending_action") val pendingAction: VoiceConversationActionDto? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class VoiceConversationResponse(
+    @Json(name = "session_id") val sessionId: String,
+    @Json(name = "assistant_message") val assistantMessage: String,
+    val intent: String,
+    val confidence: Double = 0.0,
+    val action: VoiceConversationActionDto? = null,
+    @Json(name = "missing_fields") val missingFields: List<String> = emptyList(),
+    @Json(name = "requires_confirmation") val requiresConfirmation: Boolean = false,
+    val suggestions: List<String> = emptyList()
+)

@@ -29,7 +29,7 @@ import com.unmsm.habitflow.data.local.entity.UserProfileEntity
         PlanRecommendationEntity::class,
         CosmeticRewardEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class HabitFlowDatabase : RoomDatabase() {
@@ -92,6 +92,21 @@ abstract class HabitFlowDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE user_profile ADD COLUMN primaryGoal TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE user_profile ADD COLUMN preferredCategoriesCsv TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE user_profile ADD COLUMN onboardingCompleted INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE user_profile ADD COLUMN themeMode TEXT NOT NULL DEFAULT 'system'")
+                db.execSQL("ALTER TABLE user_profile ADD COLUMN accentTheme TEXT NOT NULL DEFAULT 'mint'")
+                db.execSQL("ALTER TABLE user_profile ADD COLUMN voiceResponseEnabled INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE user_profile ADD COLUMN locale TEXT NOT NULL DEFAULT 'es-PE'")
+                db.execSQL("UPDATE user_profile SET primaryGoal = goal WHERE primaryGoal = ''")
+                db.execSQL("UPDATE user_profile SET preferredCategoriesCsv = categoriesCsv WHERE preferredCategoriesCsv = ''")
+                db.execSQL("UPDATE user_profile SET onboardingCompleted = profileComplete WHERE profileComplete = 1")
             }
         }
     }

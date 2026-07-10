@@ -3,6 +3,8 @@ package com.unmsm.habitflow.data.repository
 import com.unmsm.habitflow.data.remote.api.VoiceApi
 import com.unmsm.habitflow.data.remote.dto.VoiceAchievementContextDto
 import com.unmsm.habitflow.data.remote.dto.VoiceCommandRequest
+import com.unmsm.habitflow.data.remote.dto.VoiceConversationRequest
+import com.unmsm.habitflow.data.remote.dto.VoiceConversationUserContextDto
 import com.unmsm.habitflow.data.remote.dto.VoiceEventContextDto
 import com.unmsm.habitflow.data.remote.dto.VoiceHabitContextDto
 import com.unmsm.habitflow.data.toDomain
@@ -76,5 +78,26 @@ class VoiceRepository @Inject constructor(
                     conversationId = conversationId
                 )
             ).toDomain()
+        }
+
+    suspend fun conversation(
+        text: String,
+        habits: List<Habit>,
+        firstName: String? = null,
+        sessionId: String? = null
+    ) =
+        runNetwork {
+            voiceApi.conversation(
+                VoiceConversationRequest(
+                    sessionId = sessionId,
+                    text = text,
+                    userContext = VoiceConversationUserContextDto(
+                        firstName = firstName,
+                        existingHabits = habits.map { habit ->
+                            VoiceHabitContextDto(id = habit.id, name = habit.name, category = habit.category)
+                        }
+                    )
+                )
+            )
         }
 }

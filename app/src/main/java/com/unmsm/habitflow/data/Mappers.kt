@@ -31,10 +31,17 @@ fun UserDto.toDomain() = User(
     email = email,
     bio = bio.orEmpty(),
     goal = goal.orEmpty(),
+    primaryGoal = primaryGoal ?: goal.orEmpty(),
     timezone = timezone ?: "America/Lima",
     avatarUrl = avatarUrl,
     avatarKey = avatarKey,
     categories = categories,
+    preferredCategories = preferredCategories.ifEmpty { categories },
+    onboardingCompleted = onboardingCompleted ?: profileComplete,
+    themeMode = themeMode ?: "system",
+    accentTheme = accentTheme ?: "mint",
+    voiceResponseEnabled = voiceResponseEnabled ?: true,
+    locale = locale ?: "es-PE",
     profileComplete = profileComplete
 )
 
@@ -45,10 +52,17 @@ fun User.toEntity() = UserProfileEntity(
     email = email,
     bio = bio,
     goal = goal,
+    primaryGoal = primaryGoal.ifBlank { goal },
     timezone = timezone,
     avatarUrl = avatarUrl,
     avatarKey = avatarKey,
     categoriesCsv = categories.joinToString(","),
+    preferredCategoriesCsv = preferredCategories.ifEmpty { categories }.joinToString(","),
+    onboardingCompleted = onboardingCompleted,
+    themeMode = themeMode,
+    accentTheme = accentTheme,
+    voiceResponseEnabled = voiceResponseEnabled,
+    locale = locale,
     profileComplete = profileComplete
 )
 
@@ -59,10 +73,18 @@ fun UserProfileEntity.toDomain() = User(
     email = email,
     bio = bio,
     goal = goal,
+    primaryGoal = primaryGoal.ifBlank { goal },
     timezone = timezone,
     avatarUrl = avatarUrl,
     avatarKey = avatarKey,
     categories = categoriesCsv.split(",").map { it.trim() }.filter { it.isNotBlank() },
+    preferredCategories = preferredCategoriesCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        .ifEmpty { categoriesCsv.split(",").map { it.trim() }.filter { it.isNotBlank() } },
+    onboardingCompleted = onboardingCompleted,
+    themeMode = themeMode,
+    accentTheme = accentTheme,
+    voiceResponseEnabled = voiceResponseEnabled,
+    locale = locale,
     profileComplete = profileComplete
 )
 

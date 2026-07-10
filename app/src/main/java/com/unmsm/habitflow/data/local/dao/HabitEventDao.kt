@@ -21,6 +21,9 @@ interface HabitEventDao {
     @Query("SELECT * FROM habit_events ORDER BY timestamp DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<HabitEventEntity>
 
+    @Query("SELECT * FROM habit_events WHERE id = :id LIMIT 1")
+    suspend fun findById(id: String): HabitEventEntity?
+
     @Query("SELECT COUNT(*) FROM habit_events WHERE status = 'Completed' AND timestamp >= :dayStart")
     fun observeCompletedSince(dayStart: Long): Flow<Int>
 
@@ -32,4 +35,7 @@ interface HabitEventDao {
 
     @Query("UPDATE habit_events SET synced = 1 WHERE id = :id")
     suspend fun markSynced(id: String)
+
+    @Query("DELETE FROM habit_events WHERE id = :id")
+    suspend fun deleteById(id: String)
 }

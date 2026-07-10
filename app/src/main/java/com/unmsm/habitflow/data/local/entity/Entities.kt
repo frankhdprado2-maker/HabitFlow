@@ -55,10 +55,17 @@ data class UserProfileEntity(
     val email: String,
     val bio: String,
     val goal: String,
+    val primaryGoal: String,
     val timezone: String,
     val avatarUrl: String?,
     val avatarKey: String?,
     val categoriesCsv: String,
+    val preferredCategoriesCsv: String,
+    val onboardingCompleted: Boolean,
+    val themeMode: String,
+    val accentTheme: String,
+    val voiceResponseEnabled: Boolean,
+    val locale: String,
     val profileComplete: Boolean
 )
 

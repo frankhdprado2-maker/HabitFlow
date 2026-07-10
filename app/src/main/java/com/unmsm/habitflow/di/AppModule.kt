@@ -82,7 +82,11 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): HabitFlowDatabase =
         Room.databaseBuilder(context, HabitFlowDatabase::class.java, "habitflow.db")
-            .addMigrations(HabitFlowDatabase.MIGRATION_2_3, HabitFlowDatabase.MIGRATION_3_4)
+            .addMigrations(
+                HabitFlowDatabase.MIGRATION_2_3,
+                HabitFlowDatabase.MIGRATION_3_4,
+                HabitFlowDatabase.MIGRATION_4_5
+            )
             .build()
 
     @Provides

@@ -22,6 +22,7 @@ import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.domain.model.VoicePlanResult
 import com.unmsm.habitflow.util.AppResult
+import kotlin.math.max
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -74,20 +75,20 @@ class HabitRepository @Inject constructor(
                     Habit("study", "Estudiar algoritmos", "school", "Lun-Vie", "08:00", "Universidad", streak = 6, bestStreak = 11),
                     Habit("water", "Tomar agua", "water_drop", "Diario", "10:00", "Salud", streak = 12, bestStreak = 18),
                     Habit("run", "Correr 30 minutos", "directions_run", "Mar-Jue-Sab", "18:30", "Ejercicio", streak = 3, bestStreak = 9),
-                    Habit("read", "Leer 20 paginas", "menu_book", "Diario", "21:00", "Crecimiento", streak = 4, bestStreak = 15)
+                    Habit("read", "Leer 20 páginas", "menu_book", "Diario", "21:00", "Crecimiento", streak = 4, bestStreak = 15)
                 ).map { it.toEntity() }
             )
             achievementDao.upsertAll(
                 listOf(
-                    Achievement("first", "Primer registro", "Marcaste tu primer habito.", "Completa 1 habito", true, 100),
-                    Achievement("week", "Semana solida", "Manten una racha de 7 dias.", "Racha de 7 dias", false, 250),
-                    Achievement("focus", "Modo enfoque", "Completa 5 habitos de estudio.", "5 registros de estudio", true, 180)
+                    Achievement("first", "Primer registro", "Marcaste tu primer hábito.", "Completa 1 hábito", true, 100),
+                    Achievement("week", "Semana sólida", "Mantén una racha de 7 días.", "Racha de 7 días", false, 250),
+                    Achievement("focus", "Modo enfoque", "Completa 5 hábitos de estudio.", "5 registros de estudio", true, 180)
                 ).map { it.toEntity() }
             )
             notificationDao.upsertAll(
                 listOf(
                     AppNotification("risk", "Racha en peligro", "Te falta Estudiar algoritmos antes de dormir.", NotificationKind.StreakRisk, System.currentTimeMillis()),
-                    AppNotification("weekly", "Resumen semanal", "Completaste 76% de tus habitos esta semana.", NotificationKind.WeeklySummary, System.currentTimeMillis() - 86_400_000)
+                    AppNotification("weekly", "Resumen semanal", "Completaste 76% de tus hábitos esta semana.", NotificationKind.WeeklySummary, System.currentTimeMillis() - 86_400_000)
                 ).map { it.toEntity() }
             )
         }
@@ -179,7 +180,27 @@ class HabitRepository @Inject constructor(
             synced = false
         )
         eventDao.upsert(event.toEntity())
-        return syncEvent(event)
+        if (status == HabitStatus.Completed) {
+            val nextStreak = habit.streak + 1
+            habitDao.upsert(habit.copy(streak = nextStreak, bestStreak = max(habit.bestStreak, nextStreak)).toEntity())
+        }
+        val syncResult = syncEvent(event)
+        return when (syncResult) {
+            is AppResult.Success -> syncResult
+            is AppResult.Error -> AppResult.Success(event)
+        }
+    }
+
+    suspend fun undoEvent(eventId: String): AppResult<Unit> {
+        val event = eventDao.findById(eventId)?.toDomain() ?: return AppResult.Error("No encontré la acción para deshacer.")
+        eventDao.deleteById(eventId)
+        if (event.status == HabitStatus.Completed) {
+            val habit = habitDao.findById(event.habitId)?.toDomain()
+            if (habit != null) {
+                habitDao.upsert(habit.copy(streak = (habit.streak - 1).coerceAtLeast(0)).toEntity())
+            }
+        }
+        return AppResult.Success(Unit)
     }
 
     suspend fun addNote(habit: Habit, note: String): AppResult<HabitEvent> =

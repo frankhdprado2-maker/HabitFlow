@@ -17,7 +17,16 @@ class GoogleOAuthClient:
             return None
 
         data = response.json()
-        if settings.GOOGLE_CLIENT_ID and data.get("aud") != settings.GOOGLE_CLIENT_ID:
+        expected_audience = settings.GOOGLE_WEB_CLIENT_ID or settings.GOOGLE_CLIENT_ID
+        if expected_audience and data.get("aud") != expected_audience:
+            return None
+        issuer = data.get("iss")
+        if issuer and issuer not in {"accounts.google.com", "https://accounts.google.com"}:
+            return None
+        email_verified = str(data.get("email_verified", "true")).lower()
+        if email_verified not in {"true", "1"}:
+            return None
+        if not data.get("sub") or not data.get("email"):
             return None
         return data
 

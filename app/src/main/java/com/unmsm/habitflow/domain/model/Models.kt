@@ -13,6 +13,13 @@ data class User(
     val avatarUrl: String? = null,
     val avatarKey: String? = null,
     val categories: List<String> = emptyList(),
+    val primaryGoal: String = "",
+    val preferredCategories: List<String> = emptyList(),
+    val onboardingCompleted: Boolean = false,
+    val themeMode: String = "system",
+    val accentTheme: String = "mint",
+    val voiceResponseEnabled: Boolean = true,
+    val locale: String = "es-PE",
     val profileComplete: Boolean = false
 )
 

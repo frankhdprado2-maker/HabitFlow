@@ -4,16 +4,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -23,7 +22,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.unmsm.habitflow.R
 import com.unmsm.habitflow.ui.screens.*
+import com.unmsm.habitflow.ui.components.HabitFlowNavigationBar
+import com.unmsm.habitflow.ui.components.HabitFlowNavigationItem
 import com.unmsm.habitflow.ui.viewmodel.SessionViewModel
 
 sealed class Route(val path: String) {
@@ -54,10 +56,9 @@ private data class BottomItem(val route: Route, val label: String, val icon: Ima
 
 private val bottomItems = listOf(
     BottomItem(Route.Home, "Inicio", Icons.Default.Home),
-    BottomItem(Route.Stats, "Stats", Icons.Default.BarChart),
+    BottomItem(Route.Stats, "Progreso", Icons.Default.BarChart),
     BottomItem(Route.History, "Historial", Icons.Default.History),
-    BottomItem(Route.Profile, "Perfil", Icons.Default.Person),
-    BottomItem(Route.Settings, "Ajustes", Icons.Default.Settings)
+    BottomItem(Route.Profile, "Perfil", Icons.Default.Person)
 )
 
 @Composable
@@ -70,27 +71,39 @@ fun HabitFlowApp() {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        floatingActionButton = {
+            if (showBottom) {
+                FloatingActionButton(
+                    onClick = { navController.navigate(Route.Voice.path) },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(
+                        Icons.Default.Mic,
+                        contentDescription = stringResource(R.string.open_voice_assistant)
+                    )
+                }
+            }
+        },
         bottomBar = {
             if (showBottom) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    bottomItems.forEach { item ->
-                        NavigationBarItem(
-                            selected = current?.hierarchy?.any { it.route == item.route.path } == true,
-                            onClick = { navController.navigateBottom(item.route.path) },
-                            icon = { Icon(item.icon, contentDescription = item.label) },
-                            label = { Text(item.label) }
-                        )
-                    }
-                }
+                HabitFlowNavigationBar(
+                    items = bottomItems.map { HabitFlowNavigationItem(it.route.path, it.label, it.icon) },
+                    selectedRoute = bottomItems.firstOrNull { item -> current?.hierarchy?.any { it.route == item.route.path } == true }?.route?.path,
+                    onSelected = { route -> navController.navigateBottom(route) }
+                )
             }
         }
     ) { padding ->
         NavHost(navController = navController, startDestination = Route.Splash.path) {
             composable(Route.Splash.path) {
                 SplashScreen(padding) {
-                    navController.navigateClearingBackStack(
-                        if (sessionViewModel.isLoggedIn()) Route.Home.path else Route.Onboarding.path
-                    )
+                    val startRoute = when {
+                        !sessionViewModel.isLoggedIn() -> Route.Onboarding.path
+                        sessionViewModel.needsProfileSetup() -> Route.ProfileSetup.path
+                        else -> Route.Home.path
+                    }
+                    navController.navigateClearingBackStack(startRoute)
                 }
             }
             composable(Route.Onboarding.path) { OnboardingScreen(padding, onFinish = { navController.navigate(Route.Login.path) }) }
@@ -124,7 +137,8 @@ fun HabitFlowApp() {
                 ProfileScreen(
                     padding = padding,
                     onEdit = { navController.navigate(Route.EditProfile.path) },
-                    onAchievements = { navController.navigate(Route.Achievements.path) }
+                    onAchievements = { navController.navigate(Route.Achievements.path) },
+                    onSettings = { navController.navigate(Route.Settings.path) }
                 )
             }
             composable(Route.EditProfile.path) {

@@ -1,6 +1,7 @@
 import json
 import re
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -129,7 +130,11 @@ def handle_voice_turn(
         return VoiceTurnResult(intent="desconocido", response="No escuche ningun comando.")
 
     if any(word in clean_text for word in ["cancelar", "olvida", "dejalo"]):
-        return VoiceTurnResult(intent="cancelar", response="Listo, cancele esta conversacion.", clear_session=True)
+        return VoiceTurnResult(
+            intent="cancelar",
+            response="Listo, cancele esta conversacion.",
+            clear_session=True,
+        )
 
     if _is_greeting(clean_text) or _is_social_response(clean_text):
         question = "Me alegra escucharte. Que habito hiciste hoy o cual quieres crear?"
@@ -313,7 +318,9 @@ def handle_voice_turn(
 
 def _normalize(text: str) -> str:
     replacements = str.maketrans("áéíóúüñ", "aeiouun")
-    return text.lower().translate(replacements).strip()
+    normalized = unicodedata.normalize("NFD", text.lower().translate(replacements))
+    without_marks = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
+    return re.sub(r"\s+", " ", without_marks).strip()
 
 
 def _status_from_text(text: str) -> VoiceStatus | None:
@@ -321,7 +328,10 @@ def _status_from_text(text: str) -> VoiceStatus | None:
         return "skipped"
     if any(word in text for word in ["falle", "no pude", "perdi"]):
         return "failed"
-    if any(word in text for word in ["hice", "complete", "termine", "corri", "lei", "pude", "puede", "listo"]):
+    if any(
+        word in text
+        for word in ["hice", "complete", "termine", "corri", "lei", "pude", "puede", "listo"]
+    ):
         return "completed"
     return None
 
@@ -354,6 +364,9 @@ def _match_habits(text: str, habits: list[HabitContext]) -> list[HabitContext]:
 
 
 def _choose_from_candidates(text: str, candidates: list[HabitContext]) -> HabitContext | None:
+    exact = [candidate for candidate in candidates if _normalize(candidate.name) == text]
+    if len(exact) == 1:
+        return exact[0]
     matches = _match_habits(text, candidates)
     if len(matches) == 1:
         return matches[0]
@@ -369,7 +382,11 @@ def _infer_generic_habit(text: str, habits: list[HabitContext]) -> HabitContext 
     }
     for hint, keywords in hints.items():
         if hint in text:
-            matches = [habit for habit in habits if any(keyword in _normalize(habit.name) for keyword in keywords)]
+            matches = [
+                habit
+                for habit in habits
+                if any(keyword in _normalize(habit.name) for keyword in keywords)
+            ]
             if len(matches) == 1:
                 return matches[0]
     return None
@@ -382,19 +399,31 @@ def _is_greeting(text: str) -> bool:
 def _is_social_response(text: str) -> bool:
     if _extract_new_habit_name(text) or _quantity_from_text(text)[0] is not None:
         return False
-    return any(phrase in text for phrase in ["estoy bien", "todo bien", "bien", "mas o menos", "mal"])
+    return any(
+        phrase in text
+        for phrase in ["estoy bien", "todo bien", "bien", "mas o menos", "mal"]
+    )
 
 
 def _is_progress_query(text: str) -> bool:
-    return any(phrase in text for phrase in ["como voy", "progreso", "esta semana", "semana", "avance"])
+    return any(
+        phrase in text
+        for phrase in ["como voy", "progreso", "esta semana", "semana", "avance"]
+    )
 
 
 def _is_missing_today_query(text: str) -> bool:
-    return any(phrase in text for phrase in ["que me falta", "faltan hoy", "falta hoy", "pendiente"])
+    return any(
+        phrase in text
+        for phrase in ["que me falta", "faltan hoy", "falta hoy", "pendiente"]
+    )
 
 
 def _is_achievement_query(text: str) -> bool:
-    return any(phrase in text for phrase in ["proximo logro", "siguiente logro", "cuanto me falta", "insignia"])
+    return any(
+        phrase in text
+        for phrase in ["proximo logro", "siguiente logro", "cuanto me falta", "insignia"]
+    )
 
 
 def _is_plan_request(text: str) -> bool:
@@ -416,7 +445,11 @@ def _progress_summary(habits: list[HabitContext], context: ConversationContext) 
     if not habits:
         return "Aun no tienes habitos activos. Podemos crear uno pequeno para empezar hoy."
     week_start = _now_ms() - 7 * 24 * 60 * 60 * 1000
-    week_events = [event for event in context.events if event.timestamp >= week_start and event.status.lower() == "completed"]
+    week_events = [
+        event
+        for event in context.events
+        if event.timestamp >= week_start and event.status.lower() == "completed"
+    ]
     counts: dict[str, int] = {}
     for event in week_events:
         counts[event.habit_name] = counts.get(event.habit_name, 0) + 1
@@ -424,9 +457,16 @@ def _progress_summary(habits: list[HabitContext], context: ConversationContext) 
         names = ", ".join(habit.name for habit in habits[:3])
         return f"Esta semana aun no hay registros completados. Puedes empezar con {names}."
     top = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:3]
-    detail = ", ".join(f"{name}: {count} registro{'s' if count != 1 else ''}" for name, count in top)
+    detail = ", ".join(
+        f"{name}: {count} registro{'s' if count != 1 else ''}"
+        for name, count in top
+    )
     missing = _missing_today_names(habits, context)
-    suffix = f" Te falta hoy: {', '.join(missing[:3])}." if missing else " Hoy ya tienes registros activos."
+    suffix = (
+        f" Te falta hoy: {', '.join(missing[:3])}."
+        if missing
+        else " Hoy ya tienes registros activos."
+    )
     return f"Esta semana vas asi: {detail}.{suffix}"
 
 
@@ -460,7 +500,8 @@ def _build_plan(text: str, habits: list[HabitContext], context: ConversationCont
         [
             event
             for event in context.events
-            if event.timestamp >= _now_ms() - 7 * 24 * 60 * 60 * 1000 and event.status.lower() == "completed"
+            if event.timestamp >= _now_ms() - 7 * 24 * 60 * 60 * 1000
+            and event.status.lower() == "completed"
         ]
     )
     if not habits:
@@ -528,7 +569,19 @@ def _now_ms() -> int:
 def _day_start_ms() -> int:
     seconds = int(time.time())
     local = time.localtime(seconds)
-    start = time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, local.tm_wday, local.tm_yday, local.tm_isdst))
+    start = time.mktime(
+        (
+            local.tm_year,
+            local.tm_mon,
+            local.tm_mday,
+            0,
+            0,
+            0,
+            local.tm_wday,
+            local.tm_yday,
+            local.tm_isdst,
+        )
+    )
     return int(start * 1000)
 
 

@@ -96,8 +96,18 @@ def test_answers_weekly_progress_from_real_events() -> None:
     ]
     context = ConversationContext(
         events=[
-            HabitEventContext(habit_id="read", habit_name="Leer", status="Completed", timestamp=9_999_999_999_999),
-            HabitEventContext(habit_id="read", habit_name="Leer", status="Completed", timestamp=9_999_999_999_998),
+            HabitEventContext(
+                habit_id="read",
+                habit_name="Leer",
+                status="Completed",
+                timestamp=9_999_999_999_999,
+            ),
+            HabitEventContext(
+                habit_id="read",
+                habit_name="Leer",
+                status="Completed",
+                timestamp=9_999_999_999_998,
+            ),
         ]
     )
 
@@ -122,3 +132,21 @@ def test_builds_safe_plan_recommendation() -> None:
     assert result.plan is not None
     assert result.plan.category == "Estudio"
     assert result.plan.actions
+
+
+def test_personal_name_is_not_treated_as_habit() -> None:
+    result = handle_voice_turn("Hola, soy Frank.", [])
+
+    assert result.intent == "aclaracion"
+    assert result.events == []
+    assert "habito" in result.response.lower() or "hábito" in result.response.lower()
+
+
+def test_prefixed_user_name_does_not_become_habit_name() -> None:
+    habits = [HabitContext(id="read", name="Leer 20 paginas", category="Lectura")]
+
+    result = handle_voice_turn("Frank, ya terminé de leer.", habits)
+
+    assert result.intent == "registrar_habito"
+    assert result.events[0].habit_id == "read"
+    assert "Frank" not in result.events[0].habit_name

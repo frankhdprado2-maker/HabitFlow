@@ -33,11 +33,16 @@ data class RegisterUiState(
 data class HomeUiState(
     val userName: String = "Estudiante",
     val habits: List<Habit> = emptyList(),
+    val completedHabitIds: Set<String> = emptySet(),
     val completedToday: Int = 0,
     val streak: Int = 0,
+    val bestStreak: Int = 0,
+    val totalCompleted: Int = 0,
     val voiceText: String = "",
     val voiceResponse: String = "",
-    val loading: Boolean = true
+    val loading: Boolean = true,
+    val offline: Boolean = false,
+    val lastActionMessage: String? = null
 )
 
 data class HabitDetailUiState(
@@ -49,9 +54,13 @@ data class HabitDetailUiState(
 
 data class StatsUiState(
     val currentStreak: Int = 0,
+    val bestStreak: Int = 0,
     val monthPercent: Int = 0,
     val weekly: List<Int> = List(7) { 0 },
-    val habits: List<Habit> = emptyList()
+    val habits: List<Habit> = emptyList(),
+    val totalCompleted: Int = 0,
+    val weeklyComparison: Int = 0,
+    val hasData: Boolean = false
 )
 
 data class HistoryUiState(
@@ -82,16 +91,24 @@ data class SettingsUiState(
 )
 
 data class ThemeUiState(
-    val darkMode: Boolean = true,
-    val accentColor: String = "violet"
+    val darkMode: Boolean = false,
+    val accentColor: String = "mint"
 )
 
 data class ProfileSetupUiState(
+    val step: Int = 1,
+    val maxSteps: Int = 6,
     val name: String = "",
     val username: String = "",
     val goal: String = "",
+    val bio: String = "",
     val avatarKey: String = "avatar_lavender",
     val categories: List<String> = listOf("Estudio", "Salud"),
+    val selectedTemplates: List<String> = listOf("Estudiar 25 minutos"),
+    val darkMode: Boolean = false,
+    val accentColor: String = "mint",
+    val remindersEnabled: Boolean = true,
+    val voiceResponseEnabled: Boolean = true,
     val loading: Boolean = false,
     val saved: Boolean = false,
     val error: String? = null
@@ -114,15 +131,30 @@ data class VoiceMessageUi(
     val text: String
 )
 
+enum class VoiceAssistantPhase {
+    Idle,
+    RequestingPermission,
+    Listening,
+    PartialResult,
+    Processing,
+    AwaitingConfirmation,
+    Speaking,
+    Completed,
+    Error
+}
+
 data class VoiceUiState(
+    val phase: VoiceAssistantPhase = VoiceAssistantPhase.Idle,
     val listening: Boolean = false,
     val recording: Boolean = false,
     val transcribing: Boolean = false,
     val transcript: String = "",
+    val partialTranscript: String = "",
     val response: String = "",
     val messages: List<VoiceMessageUi> = emptyList(),
     val quickReplies: List<String> = emptyList(),
     val conversationId: String? = null,
+    val pendingSummary: String? = null,
     val error: String? = null
 )
 

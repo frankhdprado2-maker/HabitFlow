@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     APP_ENV: str
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
+    CORS_ALLOWED_ORIGINS: str = ""
 
     # PostgreSQL
     POSTGRES_HOST: str
@@ -43,9 +44,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    GOOGLE_CLIENT_ID: str
-    GOOGLE_CLIENT_SECRET: str
-    GOOGLE_REDIRECT_URI: str
+    GOOGLE_WEB_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = ""
 
     # AI
     LLM_TYPE: str = "local"

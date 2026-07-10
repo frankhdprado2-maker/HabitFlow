@@ -1,6 +1,6 @@
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import delete, select, update
@@ -10,21 +10,23 @@ from app.projects.c21200065.infra.orm.auth import AuthRefreshTokenORM, AuthUserO
 
 
 class UserORMRepository:
-    async def find_by_id(self, user_id: str) -> Optional[dict[str, Any]]:
+    async def find_by_id(self, user_id: str) -> dict[str, Any] | None:
         async with async_session() as session:
             result = await session.execute(select(AuthUserORM).where(AuthUserORM.id == user_id))
             user = result.scalar_one_or_none()
             return _user_to_dict(user)
 
-    async def find_by_email(self, email: str) -> Optional[dict[str, Any]]:
+    async def find_by_email(self, email: str) -> dict[str, Any] | None:
         async with async_session() as session:
             result = await session.execute(select(AuthUserORM).where(AuthUserORM.email == email))
             user = result.scalar_one_or_none()
             return _user_to_dict(user)
 
-    async def find_by_google_id(self, google_id: str) -> Optional[dict[str, Any]]:
+    async def find_by_google_id(self, google_id: str) -> dict[str, Any] | None:
         async with async_session() as session:
-            result = await session.execute(select(AuthUserORM).where(AuthUserORM.google_id == google_id))
+            result = await session.execute(
+                select(AuthUserORM).where(AuthUserORM.google_id == google_id)
+            )
             user = result.scalar_one_or_none()
             return _user_to_dict(user)
 
@@ -38,22 +40,34 @@ class UserORMRepository:
             auth_provider=user["auth_provider"],
             name=user.get("name"),
             username=user.get("username"),
+            bio=user.get("bio"),
             goal=user.get("goal"),
+            primary_goal=user.get("primary_goal"),
             timezone=user.get("timezone"),
             avatar_url=user.get("avatar_url"),
             avatar_key=user.get("avatar_key"),
             categories=user.get("categories"),
+            preferred_categories=user.get("preferred_categories"),
+            onboarding_completed=user.get("onboarding_completed"),
+            theme_mode=user.get("theme_mode"),
+            accent_theme=user.get("accent_theme"),
+            voice_response_enabled=user.get("voice_response_enabled"),
+            locale=user.get("locale"),
         )
         async with async_session() as session:
             session.add(record)
             await session.commit()
         return SimpleNamespace(inserted_id=user_id)
 
-    async def update_user(self, user_id: str, values: dict[str, Any]) -> Optional[dict[str, Any]]:
+    async def update_user(self, user_id: str, values: dict[str, Any]) -> dict[str, Any] | None:
         clean_values = {key: value for key, value in values.items() if value is not None}
         if clean_values:
             async with async_session() as session:
-                await session.execute(update(AuthUserORM).where(AuthUserORM.id == user_id).values(**clean_values))
+                await session.execute(
+                    update(AuthUserORM)
+                    .where(AuthUserORM.id == user_id)
+                    .values(**clean_values)
+                )
                 await session.commit()
         return await self.find_by_id(user_id)
 
@@ -65,7 +79,7 @@ class RefreshTokenORMRepository:
         user_id: str,
         email: str,
         expires_at: datetime,
-        device_id: Optional[str],
+        device_id: str | None,
     ) -> None:
         record = AuthRefreshTokenORM(
             token=token,
@@ -78,9 +92,11 @@ class RefreshTokenORMRepository:
             session.add(record)
             await session.commit()
 
-    async def find(self, token: str) -> Optional[dict[str, Any]]:
+    async def find(self, token: str) -> dict[str, Any] | None:
         async with async_session() as session:
-            result = await session.execute(select(AuthRefreshTokenORM).where(AuthRefreshTokenORM.token == token))
+            result = await session.execute(
+                select(AuthRefreshTokenORM).where(AuthRefreshTokenORM.token == token)
+            )
             record = result.scalar_one_or_none()
             if record is None:
                 return None
@@ -94,11 +110,13 @@ class RefreshTokenORMRepository:
 
     async def delete(self, token: str) -> None:
         async with async_session() as session:
-            await session.execute(delete(AuthRefreshTokenORM).where(AuthRefreshTokenORM.token == token))
+            await session.execute(
+                delete(AuthRefreshTokenORM).where(AuthRefreshTokenORM.token == token)
+            )
             await session.commit()
 
 
-def _user_to_dict(user: AuthUserORM | None) -> Optional[dict[str, Any]]:
+def _user_to_dict(user: AuthUserORM | None) -> dict[str, Any] | None:
     if user is None:
         return None
     return {
@@ -109,9 +127,17 @@ def _user_to_dict(user: AuthUserORM | None) -> Optional[dict[str, Any]]:
         "auth_provider": user.auth_provider,
         "name": user.name,
         "username": user.username,
+        "bio": user.bio,
         "goal": user.goal,
+        "primary_goal": user.primary_goal,
         "timezone": user.timezone,
         "avatar_url": user.avatar_url,
         "avatar_key": user.avatar_key,
         "categories": user.categories,
+        "preferred_categories": user.preferred_categories,
+        "onboarding_completed": user.onboarding_completed,
+        "theme_mode": user.theme_mode,
+        "accent_theme": user.accent_theme,
+        "voice_response_enabled": user.voice_response_enabled,
+        "locale": user.locale,
     }

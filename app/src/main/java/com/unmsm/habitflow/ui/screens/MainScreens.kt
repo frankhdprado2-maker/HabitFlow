@@ -22,15 +22,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +40,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,13 +53,25 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.ui.components.ClayCard
-import com.unmsm.habitflow.ui.components.HabitRow
-import com.unmsm.habitflow.ui.components.MetricTile
-import com.unmsm.habitflow.ui.components.PrimaryAction
+import com.unmsm.habitflow.ui.components.HabitFlowAvatar
+import com.unmsm.habitflow.ui.components.HabitFlowCategoryChip
+import com.unmsm.habitflow.ui.components.HabitFlowEmptyState
+import com.unmsm.habitflow.ui.components.HabitFlowHabitCard
+import com.unmsm.habitflow.ui.components.HabitFlowMessageBubble
+import com.unmsm.habitflow.ui.components.HabitFlowMetricCard
+import com.unmsm.habitflow.ui.components.HabitFlowOutlinedField
+import com.unmsm.habitflow.ui.components.HabitFlowPrimaryButton
+import com.unmsm.habitflow.ui.components.HabitFlowProgressRing
+import com.unmsm.habitflow.ui.components.HabitFlowSecondaryButton
+import com.unmsm.habitflow.ui.components.HabitFlowSectionHeader
+import com.unmsm.habitflow.ui.components.HabitFlowStreakBadge
+import com.unmsm.habitflow.ui.components.HabitFlowTopBar
+import com.unmsm.habitflow.ui.components.HabitFlowVoiceOrb
 import com.unmsm.habitflow.ui.components.ProgressBar
-import com.unmsm.habitflow.ui.components.SectionTitle
 import com.unmsm.habitflow.ui.components.StatusBadge
-import com.unmsm.habitflow.ui.components.VerticalSpacer
+import com.unmsm.habitflow.ui.state.VoiceAssistantPhase
+import com.unmsm.habitflow.ui.theme.HabitFlowAccent
+import com.unmsm.habitflow.ui.theme.HabitFlowShapes
 import com.unmsm.habitflow.ui.viewmodel.AchievementsViewModel
 import com.unmsm.habitflow.ui.viewmodel.EditProfileViewModel
 import com.unmsm.habitflow.ui.viewmodel.HabitDetailViewModel
@@ -66,7 +83,9 @@ import com.unmsm.habitflow.ui.viewmodel.ProfileViewModel
 import com.unmsm.habitflow.ui.viewmodel.SettingsViewModel
 import com.unmsm.habitflow.ui.viewmodel.StatsViewModel
 import com.unmsm.habitflow.ui.viewmodel.VoiceViewModel
+import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 
 @Composable
 fun HomeScreen(
@@ -78,59 +97,107 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val dateText = remember {
+        DateFormat.getDateInstance(DateFormat.FULL, Locale("es", "PE")).format(Date())
+    }
+    val progress = if (state.habits.isEmpty()) 0f else state.completedToday.toFloat() / state.habits.size
+    val nextHabit = state.habits.firstOrNull { it.id !in state.completedHabitIds }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Text("Hola, ${state.userName}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text("Tu progreso de hoy: ${state.completedToday}/${state.habits.size} hábitos")
-                }
-                Row {
-                    IconButton(onClick = onManual) { Icon(Icons.Default.Add, "Agregar") }
-                    IconButton(onClick = onNotifications) { Icon(Icons.Default.Notifications, "Notificaciones") }
-                    IconButton(onClick = onVoice) { Icon(Icons.Default.Mic, "Voz") }
-                }
-            }
-            VerticalSpacer()
-            LinearProgressIndicator(
-                progress = { if (state.habits.isEmpty()) 0f else state.completedToday.toFloat() / state.habits.size },
-                modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(10.dp))
+            HabitFlowTopBar(
+                title = "Hola, ${state.userName}",
+                subtitle = dateText,
+                actionIcon = Icons.Default.Notifications,
+                actionDescription = "Notificaciones",
+                onAction = onNotifications
             )
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricTile("Racha", "${state.streak} días", Modifier.weight(1f))
-                MetricTile("Hoy", "${state.completedToday}/${state.habits.size}", Modifier.weight(1f))
-            }
-        }
-        if (state.voiceResponse.isNotBlank()) {
-            item {
-                ClayCard(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text(state.voiceText, fontWeight = FontWeight.SemiBold)
-                        Text(state.voiceResponse)
+            ClayCard(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                Row(
+                    Modifier.fillMaxWidth().padding(18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HabitFlowProgressRing(progress = progress, label = "hoy")
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Vas ${state.completedToday}/${state.habits.size}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                        Text("Un avance pequeño también cuenta. Mantén el ritmo sin saturarte.")
+                        HabitFlowStreakBadge(state.streak)
                     }
                 }
             }
         }
-        item { SectionTitle("Hábitos de hoy") }
-        if (state.habits.isEmpty()) {
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                HabitFlowMetricCard("Mejor racha", "${state.bestStreak} días", Modifier.weight(1f))
+                HabitFlowMetricCard("Completados", "${state.totalCompleted}", Modifier.weight(1f))
+            }
+        }
+        if (state.lastActionMessage != null) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Aun no tienes habitos. Usa el microfono o crea uno manualmente.")
-                    Button(onClick = onManual, modifier = Modifier.fillMaxWidth()) { Text("Agregar habito manual") }
+                ClayCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
+                    Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text(state.lastActionMessage.orEmpty(), modifier = Modifier.weight(1f))
+                        TextButton(onClick = viewModel::undoLastAction) { Text("Deshacer") }
+                    }
                 }
             }
         }
+        item {
+            ClayCard(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Asistente de voz", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("Registra, consulta o crea hábitos con confirmación antes de guardar.")
+                    }
+                    IconButton(onClick = onVoice, modifier = Modifier.size(58.dp)) {
+                        Icon(Icons.Default.Mic, contentDescription = "Abrir asistente de voz", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+        item {
+            HabitFlowSectionHeader(title = "Próxima actividad", actionLabel = "Agregar", onAction = onManual)
+        }
+        item {
+            if (nextHabit == null) {
+                Text("Todo listo por ahora. Puedes crear otra rutina o revisar tu progreso.")
+            } else {
+                ClayCard {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(nextHabit.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("${nextHabit.category} · ${nextHabit.reminderTime}")
+                        }
+                        Button(onClick = { viewModel.mark(nextHabit) }) { Text("Completar") }
+                    }
+                }
+            }
+        }
+        item { HabitFlowSectionHeader("Hábitos de hoy") }
+        if (state.habits.isEmpty()) {
+            item {
+                HabitFlowEmptyState(
+                    title = "Aún no tienes hábitos",
+                    message = "Empieza con una rutina pequeña. Puedes crearla manualmente o dictarla con voz.",
+                    actionLabel = "Crear mi primer hábito",
+                    onAction = onManual,
+                    suggestions = listOf("Leer 20 min", "Beber agua", "Caminar")
+                )
+            }
+        }
         items(state.habits) { habit ->
-            HabitRow(
+            HabitFlowHabitCard(
                 habit = habit,
-                completed = habit.streak > 0,
-                onMark = { viewModel.mark(habit) },
+                completed = habit.id in state.completedHabitIds,
+                onComplete = { viewModel.mark(habit) },
+                onSkip = { viewModel.mark(habit, HabitStatus.Skipped) },
                 onOpen = { onHabit(habit.id) }
             )
         }
@@ -141,40 +208,45 @@ fun HomeScreen(
 fun HabitDetailScreen(padding: PaddingValues, viewModel: HabitDetailViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     val habit = state.habit
-    LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
         item {
-            Text(habit?.name ?: "Detalle de hábito", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("${habit?.category.orEmpty()} · ${habit?.frequency.orEmpty()}")
+            HabitFlowTopBar(
+                title = habit?.name ?: "Detalle de hábito",
+                subtitle = "${habit?.category.orEmpty()} · ${habit?.frequency.orEmpty()}"
+            )
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricTile("Racha", "${habit?.streak ?: 0}", Modifier.weight(1f))
-                MetricTile("Mejor", "${habit?.bestStreak ?: 0}", Modifier.weight(1f))
-                MetricTile("Mes", "${state.completionPercent}%", Modifier.weight(1f))
+                HabitFlowMetricCard("Racha", "${habit?.streak ?: 0}", Modifier.weight(1f))
+                HabitFlowMetricCard("Mejor", "${habit?.bestStreak ?: 0}", Modifier.weight(1f))
+                HabitFlowMetricCard("Mes", "${state.completionPercent}%", Modifier.weight(1f))
             }
         }
         item {
-            SectionTitle("Heatmap del mes")
+            HabitFlowSectionHeader("Heatmap del mes")
             Heatmap()
         }
         item {
-            OutlinedTextField(
-                value = state.note,
-                onValueChange = viewModel::updateNote,
-                label = { Text("Agregar nota") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 12.dp)) {
-                Button(onClick = viewModel::markToday, modifier = Modifier.weight(1f)) { Text("Marcar hoy") }
-                Button(onClick = viewModel::addNote, modifier = Modifier.weight(1f)) { Text("Agregar nota") }
+            ClayCard {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    HabitFlowOutlinedField(state.note, "Agregar nota", viewModel::updateNote, singleLine = false)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        HabitFlowPrimaryButton("Marcar hoy", viewModel::markToday, modifier = Modifier.weight(1f))
+                        HabitFlowSecondaryButton("Guardar nota", viewModel::addNote, modifier = Modifier.weight(1f))
+                    }
+                }
             }
         }
-        item { SectionTitle("Notas recientes") }
+        item { HabitFlowSectionHeader("Notas recientes") }
         items(state.events) { event ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(event.note.ifBlank { event.habitName }, fontWeight = FontWeight.SemiBold)
-                    Text(java.text.DateFormat.getDateTimeInstance().format(Date(event.timestamp)), style = MaterialTheme.typography.bodySmall)
+                    Text(DateFormat.getDateTimeInstance().format(Date(event.timestamp)), style = MaterialTheme.typography.bodySmall)
                 }
                 StatusBadge(event.status)
             }
@@ -185,37 +257,84 @@ fun HabitDetailScreen(padding: PaddingValues, viewModel: HabitDetailViewModel = 
 @Composable
 fun StatsScreen(padding: PaddingValues, viewModel: StatsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { Text("Estadísticas", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+    val maxWeek = state.weekly.maxOrNull()?.coerceAtLeast(1) ?: 1
+    LazyColumn(
+        Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item { HabitFlowTopBar("Progreso", subtitle = "Rachas, semana y cumplimiento") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricTile("Racha actual", "${state.currentStreak}", Modifier.weight(1f))
-                MetricTile("% del mes", "${state.monthPercent}%", Modifier.weight(1f))
+                HabitFlowMetricCard("Racha actual", "${state.currentStreak} días", Modifier.weight(1f))
+                HabitFlowMetricCard("Mejor racha", "${state.bestStreak} días", Modifier.weight(1f))
             }
         }
         item {
-            SectionTitle("Semana")
-            Row(Modifier.fillMaxWidth().height(140.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-                state.weekly.forEach { value ->
-                    Box(Modifier.weight(1f).fillMaxHeight(value / 5f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                HabitFlowMetricCard("Mes", "${state.monthPercent}%", Modifier.weight(1f))
+                HabitFlowMetricCard("Semana", signedCount(state.weeklyComparison), Modifier.weight(1f))
+            }
+        }
+        item {
+            HabitFlowSectionHeader("Semana")
+            ClayCard {
+                Row(
+                    Modifier.fillMaxWidth().height(156.dp).padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    state.weekly.forEach { value ->
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight((value.toFloat() / maxWeek).coerceIn(0.08f, 1f))
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
                 }
             }
         }
-        item { SectionTitle("Cumplimiento por hábito") }
-        items(state.habits) { habit -> ProgressBar(habit.name, (habit.streak.coerceAtMost(10) / 10f)) }
+        if (!state.hasData) {
+            item {
+                HabitFlowEmptyState(
+                    title = "Tus estadísticas aparecerán pronto",
+                    message = "Completa un hábito para ver rachas, comparaciones e insights reales.",
+                    suggestions = listOf("Completar hábito", "Crear rutina")
+                )
+            }
+        }
+        item { HabitFlowSectionHeader("Cumplimiento por hábito") }
+        items(state.habits) { habit ->
+            ProgressBar(habit.name, habit.streak.coerceAtMost(10) / 10f)
+        }
     }
 }
 
 @Composable
 fun HistoryScreen(padding: PaddingValues, viewModel: HistoryViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("Historial", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+    LazyColumn(
+        Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item { HabitFlowTopBar("Historial", subtitle = "Registros agrupados por fecha") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Todos", "Completados", "Saltados").forEach { filter ->
-                    AssistChip(onClick = { viewModel.setFilter(filter) }, label = { Text(filter) })
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf("Todos", "Completados", "Saltados")) { filter ->
+                    HabitFlowCategoryChip(filter, selected = state.filter == filter, onClick = { viewModel.setFilter(filter) })
                 }
+            }
+        }
+        if (state.events.isEmpty()) {
+            item {
+                HabitFlowEmptyState(
+                    title = "Sin registros todavía",
+                    message = "Cuando completes o saltes hábitos, aparecerán aquí con fecha, hora y estado.",
+                    suggestions = listOf("Completar uno", "Usar voz")
+                )
             }
         }
         items(state.events) { event ->
@@ -223,7 +342,8 @@ fun HistoryScreen(padding: PaddingValues, viewModel: HistoryViewModel = hiltView
                 Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(event.habitName, fontWeight = FontWeight.SemiBold)
-                        Text(java.text.DateFormat.getDateInstance().format(Date(event.timestamp)), style = MaterialTheme.typography.bodySmall)
+                        Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(event.timestamp)), style = MaterialTheme.typography.bodySmall)
+                        if (event.note.isNotBlank()) Text(event.note, style = MaterialTheme.typography.bodySmall)
                     }
                     StatusBadge(event.status)
                 }
@@ -236,7 +356,10 @@ fun HistoryScreen(padding: PaddingValues, viewModel: HistoryViewModel = hiltView
 fun NotificationsScreen(padding: PaddingValues, viewModel: NotificationsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("Notificaciones", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { HabitFlowTopBar("Notificaciones") }
+        if (state.notifications.isEmpty()) {
+            item { HabitFlowEmptyState("Sin notificaciones", "Te avisaremos solo cuando haya algo útil para tu rutina.") }
+        }
         items(state.notifications) { item ->
             ClayCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
@@ -249,47 +372,74 @@ fun NotificationsScreen(padding: PaddingValues, viewModel: NotificationsViewMode
 }
 
 @Composable
-fun ProfileScreen(padding: PaddingValues, onEdit: () -> Unit, onAchievements: () -> Unit, viewModel: ProfileViewModel = hiltViewModel()) {
+fun ProfileScreen(
+    padding: PaddingValues,
+    onEdit: () -> Unit,
+    onAchievements: () -> Unit,
+    onSettings: () -> Unit = {},
+    viewModel: ProfileViewModel = hiltViewModel()
+) {
     val state by viewModel.state.collectAsState()
-    LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            HabitFlowTopBar(
+                title = "Perfil",
+                actionIcon = Icons.Default.Settings,
+                actionDescription = "Ajustes",
+                onAction = onSettings
+            )
+        }
         item {
             ClayCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(
-                            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(state.user.avatarKey?.takeLast(2)?.uppercase() ?: state.user.name.take(2).uppercase(), fontWeight = FontWeight.Bold)
-                        }
-                        Column {
-                            Text(state.user.name, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                            Text("@${state.user.username} - nivel ${state.user.level} - racha 0")
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        HabitFlowAvatar(state.user.name, avatarKey = state.user.avatarKey, size = 72)
+                        Column(Modifier.weight(1f)) {
+                            Text(state.user.name.ifBlank { "Estudiante" }, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                            Text("@${state.user.username} · nivel ${state.user.level}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(state.user.goal.ifBlank { "Ser constante" })
                         }
                     }
                     if (state.user.categories.isNotEmpty()) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            state.user.categories.take(4).forEach { category ->
-                                AssistChip(onClick = {}, label = { Text(category) })
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(state.user.categories.take(6)) { category ->
+                                HabitFlowCategoryChip(category, selected = true, onClick = {})
                             }
                         }
                     }
-                    Text(state.user.goal.ifBlank { "Ser constante" })
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-                        Button(onClick = onEdit) { Text("Editar perfil") }
-                        Button(onClick = onAchievements) { Text("Logros") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HabitFlowPrimaryButton("Editar", onEdit, modifier = Modifier.weight(1f), icon = Icons.Default.Edit)
+                        HabitFlowSecondaryButton("Logros", onAchievements, modifier = Modifier.weight(1f))
                     }
                 }
             }
         }
-        item { SectionTitle("Insignias") }
-        items(state.achievements.filter { it.unlocked }) { Text("• ${it.title}: ${it.description}") }
-        if (state.achievements.isEmpty()) {
-            item { Text("Todavia no tienes insignias.") }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                HabitFlowMetricCard("Insignias", "${state.achievements.count { it.unlocked }}", Modifier.weight(1f))
+                HabitFlowMetricCard("Racha", "0 días", Modifier.weight(1f))
+            }
         }
-        item { SectionTitle("Amigos activos") }
+        item { HabitFlowSectionHeader("Insignias") }
+        val unlocked = state.achievements.filter { it.unlocked }
+        if (unlocked.isEmpty()) {
+            item { HabitFlowEmptyState("Sin insignias aún", "Completa hábitos para desbloquear logros reales.") }
+        }
+        items(unlocked) { achievement ->
+            ClayCard {
+                Column(Modifier.padding(14.dp)) {
+                    Text(achievement.title, fontWeight = FontWeight.SemiBold)
+                    Text(achievement.description)
+                }
+            }
+        }
+        item { HabitFlowSectionHeader("Amigos activos") }
         if (state.friends.isEmpty()) {
-            item { Text("Todavia no agregaste amigos.") }
+            item { Text("Aún no agregaste amigos. Esta sección queda lista para una futura función social.") }
         }
         items(state.friends) { friend -> Text("${friend.first}: racha ${friend.second}") }
     }
@@ -310,46 +460,36 @@ fun EditProfileScreen(
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item {
-            Text("Editar perfil", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        }
+        item { HabitFlowTopBar("Editar perfil") }
         item {
             ClayCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(state.name, viewModel::updateName, label = { Text("Nombre") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    OutlinedTextField(state.username, viewModel::updateUsername, label = { Text("Username") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    OutlinedTextField(state.goal, viewModel::updateGoal, label = { Text("Objetivo principal") }, modifier = Modifier.fillMaxWidth())
+                    HabitFlowOutlinedField(value = state.name, label = "Nombre visible", onValueChange = viewModel::updateName)
+                    HabitFlowOutlinedField(value = state.username, label = "Username", onValueChange = viewModel::updateUsername)
+                    HabitFlowOutlinedField(value = state.goal, label = "Objetivo principal", onValueChange = viewModel::updateGoal, singleLine = false)
                 }
             }
         }
-        item { SectionTitle("Avatar") }
+        item { HabitFlowSectionHeader("Avatar") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("avatar_lavender" to "LV", "avatar_mint" to "MT", "avatar_coral" to "CR", "avatar_amber" to "AM").forEach { (key, label) ->
-                    AssistChip(
-                        onClick = { viewModel.updateAvatar(key) },
-                        label = { Text(if (state.avatarKey == key) "$label OK" else label) }
-                    )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf("avatar_lavender" to "Lavanda", "avatar_mint" to "Menta", "avatar_coral" to "Coral", "avatar_amber" to "Ámbar")) { (key, label) ->
+                    HabitFlowCategoryChip(label, selected = state.avatarKey == key, onClick = { viewModel.updateAvatar(key) })
                 }
             }
         }
-        item { SectionTitle("Categorias") }
+        item { HabitFlowSectionHeader("Categorías") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Estudio", "Salud", "Bienestar", "Productividad").forEach { category ->
-                    AssistChip(
-                        onClick = { viewModel.toggleCategory(category) },
-                        label = { Text(if (category in state.categories) "$category OK" else category) }
-                    )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf("Estudio", "Salud", "Bienestar", "Productividad", "Lectura", "Sueño")) { category ->
+                    HabitFlowCategoryChip(category, selected = category in state.categories, onClick = { viewModel.toggleCategory(category) })
                 }
             }
         }
         if (state.error != null) {
             item { Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error) }
         }
-        item {
-            PrimaryAction(if (state.loading) "Guardando..." else "Guardar perfil", viewModel::save)
-        }
+        item { HabitFlowPrimaryButton(if (state.loading) "Guardando..." else "Guardar perfil", viewModel::save, loading = state.loading) }
     }
 }
 
@@ -361,28 +501,44 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Configuración", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        SettingSwitch("Notificaciones", state.settings.notifications, viewModel::toggleNotifications)
-        SettingSwitch("Modo oscuro", state.settings.darkMode, viewModel::toggleDarkMode)
-        Text("Color de acento")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("violet" to "Violeta", "mint" to "Menta", "coral" to "Coral", "amber" to "Ambar").forEach { (key, label) ->
-                AssistChip(
-                    onClick = { viewModel.setAccentColor(key) },
-                    label = { Text(if (state.settings.accentColor == key) "$label OK" else label) }
-                )
+    LazyColumn(
+        Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item { HabitFlowTopBar("Ajustes", subtitle = "Apariencia, voz, privacidad y cuenta") }
+        item { HabitFlowSectionHeader("Apariencia") }
+        item { SettingSwitch("Modo oscuro", state.settings.darkMode, viewModel::toggleDarkMode) }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(HabitFlowAccent.entries) { accent ->
+                    HabitFlowCategoryChip(accent.label, selected = state.settings.accentColor == accent.key, onClick = { viewModel.setAccentColor(accent.key) })
+                }
             }
         }
-        SettingSwitch("Biometría", state.settings.biometric, viewModel::toggleBiometric)
-        SettingSwitch("Perfil público", state.settings.publicProfile, viewModel::togglePublicProfile)
-        Text("Idioma: ${state.settings.language}")
-        Button(onClick = {}) { Text("Cambiar contraseña") }
-        Button(
-            onClick = { viewModel.logout(onLogout) },
-            enabled = !state.loggingOut
-        ) { Text(if (state.loggingOut) "Cerrando..." else "Cerrar sesion") }
-        TextButton(onClick = onDelete) { Text("Eliminar cuenta", color = MaterialTheme.colorScheme.error) }
+        item { HabitFlowSectionHeader("Notificaciones") }
+        item { SettingSwitch("Recordatorios", state.settings.notifications, viewModel::toggleNotifications) }
+        item { HabitFlowSectionHeader("Voz y asistente") }
+        item { SettingSwitch("Respuesta hablada", state.settings.voiceResponseEnabled, viewModel::toggleVoiceResponse) }
+        item { HabitFlowSectionHeader("Privacidad y seguridad") }
+        item { SettingSwitch("Biometría", state.settings.biometric, viewModel::toggleBiometric) }
+        item { SettingSwitch("Perfil público", state.settings.publicProfile, viewModel::togglePublicProfile) }
+        item { Text("Idioma: ${state.settings.language}") }
+        item { HabitFlowSectionHeader("Cuenta") }
+        item { Button(onClick = {}) { Text("Cambiar contraseña") } }
+        item {
+            HabitFlowSecondaryButton(
+                label = if (state.loggingOut) "Cerrando..." else "Cerrar sesión",
+                onClick = { viewModel.logout(onLogout) },
+                enabled = !state.loggingOut
+            )
+        }
+        item {
+            TextButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                Text("Eliminar cuenta", color = MaterialTheme.colorScheme.error)
+            }
+        }
     }
 }
 
@@ -391,24 +547,23 @@ fun AchievementsScreen(padding: PaddingValues, viewModel: AchievementsViewModel 
     val state by viewModel.state.collectAsState()
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Text("Logros", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Nivel ${state.level} · ${state.xp} XP")
+            HabitFlowTopBar("Logros", subtitle = "Nivel ${state.level} · ${state.xp} XP")
             LinearProgressIndicator(progress = { state.xp / 1000f }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(10.dp)))
         }
         if (state.plans.isNotEmpty()) {
-            item { SectionTitle("Planes de IA") }
+            item { HabitFlowSectionHeader("Planes de IA") }
             items(state.plans.take(3)) { plan ->
                 ClayCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(plan.title, fontWeight = FontWeight.SemiBold)
                         Text(plan.summary)
-                        plan.actions.take(3).forEach { action -> Text("- $action") }
+                        plan.actions.take(3).forEach { action -> Text("• $action") }
                     }
                 }
             }
         }
         if (state.cosmetics.isNotEmpty()) {
-            item { SectionTitle("Cosmeticos") }
+            item { HabitFlowSectionHeader("Recompensas") }
             items(state.cosmetics) { reward ->
                 ClayCard(Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -421,7 +576,7 @@ fun AchievementsScreen(padding: PaddingValues, viewModel: AchievementsViewModel 
                 }
             }
         }
-        item { SectionTitle("Insignias") }
+        item { HabitFlowSectionHeader("Insignias") }
         items(state.achievements) { achievement ->
             ClayCard(Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -438,13 +593,22 @@ fun AchievementsScreen(padding: PaddingValues, viewModel: AchievementsViewModel 
 
 @Composable
 fun DeleteAccountScreen(padding: PaddingValues, onDeleted: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.Center) {
-        Text("Eliminar cuenta", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-        Text("Perderás tus hábitos, historial, rachas, logros, archivos y datos de perfil.")
-        VerticalSpacer()
-        OutlinedTextField("", {}, label = { Text("Escribe ELIMINAR") }, modifier = Modifier.fillMaxWidth())
-        VerticalSpacer()
-        Button(onClick = onDeleted) { Text("Confirmar eliminación") }
+    var confirmation by remember { mutableStateOf("") }
+    LazyColumn(
+        Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text("Eliminar cuenta", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+            Text("Perderás tus hábitos, historial, rachas, logros, archivos y datos de perfil. Esta acción no debe ejecutarse accidentalmente.")
+        }
+        item { HabitFlowOutlinedField(confirmation, "Escribe ELIMINAR", { confirmation = it }) }
+        item {
+            Button(onClick = onDeleted, enabled = confirmation == "ELIMINAR") {
+                Text("Confirmar eliminación")
+            }
+        }
     }
 }
 
@@ -455,25 +619,17 @@ fun VoiceScreen(
     viewModel: VoiceViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    LaunchedEffect(Unit) {
-        viewModel.startConversation()
-    }
+    var typedText by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) { viewModel.startConversation() }
     val context = LocalContext.current
     val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) {
-            viewModel.toggleRecording()
-        } else {
-            viewModel.showError("Activa el permiso de microfono para dictar por voz.")
-        }
+        if (granted) viewModel.toggleRecording() else viewModel.showError("Activa el permiso de micrófono para dictar por voz.")
     }
     val onMicClick = {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            viewModel.toggleRecording()
-        } else {
-            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
+        if (granted) viewModel.toggleRecording() else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(20.dp),
@@ -481,57 +637,46 @@ fun VoiceScreen(
     ) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Text("Voz", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        when {
-                            state.recording -> "Grabando..."
-                            state.transcribing -> "Transcribiendo..."
-                            else -> "Conversacion activa"
-                        }
-                    )
+                Column(Modifier.weight(1f)) {
+                    Text("HabitFlow", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(voiceStatusLabel(state.phase), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = onMicClick, modifier = Modifier.size(68.dp)) {
-                    Icon(
-                        Icons.Default.Mic,
-                        contentDescription = "Grabar voz",
-                        modifier = Modifier.size(42.dp),
-                        tint = if (state.recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                    )
-                }
+                HabitFlowVoiceOrb(
+                    listening = state.phase == VoiceAssistantPhase.Listening || state.phase == VoiceAssistantPhase.PartialResult,
+                    processing = state.phase == VoiceAssistantPhase.Processing,
+                    onClick = onMicClick
+                )
             }
         }
-        if (state.messages.isEmpty()) {
+        if (state.partialTranscript.isNotBlank()) {
             item {
-                ClayCard(Modifier.fillMaxWidth(), containerColor = MaterialTheme.colorScheme.surfaceVariant) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Prueba con una frase", fontWeight = FontWeight.SemiBold)
-                        Text("Toca el microfono para grabar y vuelve a tocarlo para enviar.")
-                        Text("Complete leer 20 paginas")
-                        Text("Salte tomar agua")
-                        Text("No pude estudiar algoritmos")
-                    }
+                ClayCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
+                    Text(state.partialTranscript, modifier = Modifier.padding(16.dp), fontWeight = FontWeight.SemiBold)
                 }
             }
         }
         items(state.messages) { message ->
-            Box(Modifier.fillMaxWidth(), contentAlignment = if (message.author == "user") Alignment.CenterEnd else Alignment.CenterStart) {
-                ClayCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(if (message.author == "user") "Tu" else "HabitFlow", fontWeight = FontWeight.SemiBold)
-                        Text(message.text)
+            HabitFlowMessageBubble(author = message.author, text = message.text)
+        }
+        if (state.pendingSummary != null) {
+            item {
+                ClayCard(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Confirmación requerida", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(state.pendingSummary.orEmpty())
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            HabitFlowSecondaryButton("Cancelar", { viewModel.cancelPendingAction() }, modifier = Modifier.weight(1f))
+                            HabitFlowPrimaryButton("Confirmar", viewModel::confirmPendingAction, modifier = Modifier.weight(1f), icon = Icons.Default.Check)
+                        }
                     }
                 }
             }
-        }
-        if (state.response == "Procesando..." || state.response == "Transcribiendo...") {
-            item { Text(state.response, color = MaterialTheme.colorScheme.tertiary) }
         }
         if (state.quickReplies.isNotEmpty()) {
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(state.quickReplies) { reply ->
-                        AssistChip(onClick = { viewModel.sendText(reply) }, label = { Text(reply) })
+                        HabitFlowCategoryChip(reply, selected = false, onClick = { viewModel.sendText(reply) })
                     }
                 }
             }
@@ -540,7 +685,22 @@ fun VoiceScreen(
             item { Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error) }
         }
         item {
-            Button(onClick = onManual, modifier = Modifier.fillMaxWidth()) { Text("Registrar manualmente") }
+            ClayCard {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HabitFlowOutlinedField(typedText, "Escribir al asistente", { typedText = it }, singleLine = false)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HabitFlowSecondaryButton("Manual", onManual, modifier = Modifier.weight(1f))
+                        HabitFlowPrimaryButton(
+                            "Enviar",
+                            onClick = {
+                                viewModel.sendText(typedText)
+                                typedText = ""
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -562,28 +722,36 @@ fun ManualHabitScreen(
     ) {
         item {
             Text("Registro manual", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Crea un habito sin usar dictado de voz.")
+            Text("Crea un hábito sin usar dictado de voz.")
         }
-        item { OutlinedTextField(state.name, viewModel::updateName, label = { Text("Nombre del habito") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
-        item { OutlinedTextField(state.category, viewModel::updateCategory, label = { Text("Categoria") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
-        item { OutlinedTextField(state.frequency, viewModel::updateFrequency, label = { Text("Frecuencia") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
-        item { OutlinedTextField(state.reminderTime, viewModel::updateReminderTime, label = { Text("Hora o nota") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
+        item { HabitFlowOutlinedField(state.name, "Nombre del hábito", viewModel::updateName) }
+        item { HabitFlowOutlinedField(state.category, "Categoría", viewModel::updateCategory) }
+        item { HabitFlowOutlinedField(state.frequency, "Frecuencia", viewModel::updateFrequency) }
+        item { HabitFlowOutlinedField(state.reminderTime, "Hora o nota", viewModel::updateReminderTime) }
         if (state.error != null) {
             item { Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error) }
         }
         item {
-            Button(onClick = viewModel::save, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) {
-                Text(if (state.loading) "Guardando..." else "Guardar habito")
-            }
+            HabitFlowPrimaryButton(
+                label = if (state.loading) "Guardando..." else "Guardar hábito",
+                onClick = viewModel::save,
+                loading = state.loading
+            )
         }
     }
 }
 
 @Composable
 private fun SettingSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(label)
-        Switch(checked = checked, onCheckedChange = onChange)
+    ClayCard {
+        Row(
+            Modifier.fillMaxWidth().padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label)
+            Switch(checked = checked, onCheckedChange = onChange)
+        }
     }
 }
 
@@ -604,3 +772,22 @@ private fun Heatmap() {
         }
     }
 }
+
+private fun signedCount(value: Int): String =
+    when {
+        value > 0 -> "+$value"
+        else -> value.toString()
+    }
+
+private fun voiceStatusLabel(phase: VoiceAssistantPhase): String =
+    when (phase) {
+        VoiceAssistantPhase.Idle -> "Listo para escuchar"
+        VoiceAssistantPhase.RequestingPermission -> "Solicitando permiso"
+        VoiceAssistantPhase.Listening -> "Escuchando"
+        VoiceAssistantPhase.PartialResult -> "Transcribiendo en vivo"
+        VoiceAssistantPhase.Processing -> "Pensando"
+        VoiceAssistantPhase.AwaitingConfirmation -> "Confirmando"
+        VoiceAssistantPhase.Speaking -> "Respondiendo"
+        VoiceAssistantPhase.Completed -> "Listo"
+        VoiceAssistantPhase.Error -> "Necesita atención"
+    }
