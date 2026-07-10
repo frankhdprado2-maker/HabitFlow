@@ -1,6 +1,7 @@
 package com.unmsm.habitflow.data.repository
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -23,7 +24,8 @@ class SettingsRepository @Inject constructor(
             notifications = prefs[NOTIFICATIONS] ?: true,
             biometric = prefs[BIOMETRIC] ?: false,
             publicProfile = prefs[PUBLIC_PROFILE] ?: true,
-            language = prefs[LANGUAGE] ?: "Español"
+            language = prefs[LANGUAGE] ?: "Espanol",
+            accentColor = prefs[ACCENT_COLOR] ?: "violet"
         )
     }
 
@@ -32,7 +34,11 @@ class SettingsRepository @Inject constructor(
     suspend fun setBiometric(value: Boolean) = setBoolean(BIOMETRIC, value)
     suspend fun setPublicProfile(value: Boolean) = setBoolean(PUBLIC_PROFILE, value)
 
-    private suspend fun setBoolean(key: androidx.datastore.preferences.core.Preferences.Key<Boolean>, value: Boolean) {
+    suspend fun setAccentColor(value: String) {
+        context.dataStore.edit { prefs -> prefs[ACCENT_COLOR] = value }
+    }
+
+    private suspend fun setBoolean(key: Preferences.Key<Boolean>, value: Boolean) {
         context.dataStore.edit { prefs -> prefs[key] = value }
     }
 
@@ -42,6 +48,7 @@ class SettingsRepository @Inject constructor(
         val BIOMETRIC = booleanPreferencesKey("biometric")
         val PUBLIC_PROFILE = booleanPreferencesKey("public_profile")
         val LANGUAGE = stringPreferencesKey("language")
+        val ACCENT_COLOR = stringPreferencesKey("accent_color")
     }
 }
 
@@ -50,5 +57,6 @@ data class SettingsState(
     val notifications: Boolean = true,
     val biometric: Boolean = false,
     val publicProfile: Boolean = true,
-    val language: String = "Español"
+    val language: String = "Espanol",
+    val accentColor: String = "violet"
 )

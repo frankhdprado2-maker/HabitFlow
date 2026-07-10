@@ -82,7 +82,7 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): HabitFlowDatabase =
         Room.databaseBuilder(context, HabitFlowDatabase::class.java, "habitflow.db")
-            .fallbackToDestructiveMigration(true)
+            .addMigrations(HabitFlowDatabase.MIGRATION_2_3)
             .build()
 
     @Provides
@@ -96,4 +96,7 @@ object AppModule {
 
     @Provides
     fun provideNotificationDao(database: HabitFlowDatabase) = database.notificationDao()
+
+    @Provides
+    fun provideUserProfileDao(database: HabitFlowDatabase) = database.userProfileDao()
 }

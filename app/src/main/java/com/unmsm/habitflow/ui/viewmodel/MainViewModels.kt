@@ -10,6 +10,7 @@ import com.unmsm.habitflow.data.repository.VoiceRepository
 import com.unmsm.habitflow.domain.model.Habit
 import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.ui.state.AchievementsUiState
+import com.unmsm.habitflow.ui.state.EditProfileUiState
 import com.unmsm.habitflow.ui.state.HabitDetailUiState
 import com.unmsm.habitflow.ui.state.HistoryUiState
 import com.unmsm.habitflow.ui.state.HomeUiState
@@ -18,6 +19,8 @@ import com.unmsm.habitflow.ui.state.NotificationsUiState
 import com.unmsm.habitflow.ui.state.ProfileUiState
 import com.unmsm.habitflow.ui.state.SettingsUiState
 import com.unmsm.habitflow.ui.state.StatsUiState
+import com.unmsm.habitflow.ui.state.ThemeUiState
+import com.unmsm.habitflow.ui.state.VoiceMessageUi
 import com.unmsm.habitflow.ui.state.VoiceUiState
 import com.unmsm.habitflow.util.AppResult
 import com.unmsm.habitflow.voice.VoiceController
@@ -31,6 +34,15 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+@HiltViewModel
+class ThemeViewModel @Inject constructor(
+    settingsRepository: SettingsRepository
+) : ViewModel() {
+    val state: StateFlow<ThemeUiState> = settingsRepository.settings
+        .map { ThemeUiState(darkMode = it.darkMode, accentColor = it.accentColor) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThemeUiState())
+}
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -71,11 +83,11 @@ class HomeViewModel @Inject constructor(
             onResult = { text ->
                 _voice.value = text to "Procesando..."
                 viewModelScope.launch {
-                    when (val result = voiceRepository.command(text)) {
+                    val habits = habitRepository.activeHabits()
+                    when (val result = voiceRepository.command(text, habits)) {
                         is AppResult.Success -> {
                             habitRepository.applyVoiceCommand(result.data)
                             _voice.value = text to result.data.response
-                            voiceController.speak(result.data.response)
                         }
                         is AppResult.Error -> _voice.value = text to result.message
                     }
@@ -164,6 +176,58 @@ class ProfileViewModel @Inject constructor(
 }
 
 @HiltViewModel
+class EditProfileViewModel @Inject constructor(
+    private val authRepository: AuthRepository
+) : ViewModel() {
+    private val _state = MutableStateFlow(EditProfileUiState())
+    val state: StateFlow<EditProfileUiState> = _state
+
+    init {
+        viewModelScope.launch {
+            when (val result = authRepository.me()) {
+                is AppResult.Success -> {
+                    val user = result.data
+                    _state.update {
+                        it.copy(
+                            name = user.name,
+                            username = user.username,
+                            goal = user.goal,
+                            avatarKey = user.avatarKey ?: "avatar_lavender",
+                            categories = user.categories.ifEmpty { listOf("Estudio", "Salud") }
+                        )
+                    }
+                }
+                is AppResult.Error -> _state.update { it.copy(error = result.message) }
+            }
+        }
+    }
+
+    fun updateName(value: String) = _state.update { it.copy(name = value, error = null) }
+    fun updateUsername(value: String) = _state.update { it.copy(username = value, error = null) }
+    fun updateGoal(value: String) = _state.update { it.copy(goal = value, error = null) }
+    fun updateAvatar(value: String) = _state.update { it.copy(avatarKey = value, error = null) }
+    fun toggleCategory(value: String) = _state.update { state ->
+        val categories = if (value in state.categories) state.categories - value else state.categories + value
+        state.copy(categories = categories, error = null)
+    }
+
+    fun save() {
+        val current = state.value
+        if (current.name.trim().length < 2) {
+            _state.update { it.copy(error = "Escribe tu nombre.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(loading = true, error = null) }
+            when (val result = authRepository.updateProfile(current.name, current.username, current.goal, current.avatarKey, current.categories)) {
+                is AppResult.Success -> _state.update { it.copy(loading = false, saved = true) }
+                is AppResult.Error -> _state.update { it.copy(loading = false, error = result.message) }
+            }
+        }
+    }
+}
+
+@HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val settingsRepository: SettingsRepository
@@ -178,6 +242,7 @@ class SettingsViewModel @Inject constructor(
     fun toggleNotifications(value: Boolean) = viewModelScope.launch { settingsRepository.setNotifications(value) }
     fun toggleBiometric(value: Boolean) = viewModelScope.launch { settingsRepository.setBiometric(value) }
     fun togglePublicProfile(value: Boolean) = viewModelScope.launch { settingsRepository.setPublicProfile(value) }
+    fun setAccentColor(value: String) = viewModelScope.launch { settingsRepository.setAccentColor(value) }
     fun logout(onComplete: () -> Unit) = viewModelScope.launch {
         loggingOut.value = true
         authRepository.logout()
@@ -216,21 +281,51 @@ class VoiceViewModel @Inject constructor(
     fun listen() {
         _state.update { it.copy(listening = true, error = null) }
         voiceController.start(
-            onResult = { text ->
-                _state.update { it.copy(listening = false, transcript = text, response = "Procesando...") }
-                viewModelScope.launch {
-                    when (val result = voiceRepository.command(text)) {
-                        is AppResult.Success -> {
-                            habitRepository.applyVoiceCommand(result.data)
-                            _state.update { it.copy(response = result.data.response) }
-                            voiceController.speak(result.data.response)
-                        }
-                        is AppResult.Error -> _state.update { it.copy(response = "", error = result.message) }
-                    }
-                }
-            },
+            onResult = { text -> sendText(text) },
             onError = { error -> _state.update { it.copy(listening = false, error = error) } }
         )
+    }
+
+    fun sendText(text: String) {
+        val clean = text.trim()
+        if (clean.isBlank()) return
+        _state.update {
+            it.copy(
+                listening = false,
+                transcript = clean,
+                response = "Procesando...",
+                messages = it.messages + VoiceMessageUi("user", clean),
+                quickReplies = emptyList(),
+                error = null
+            )
+        }
+        viewModelScope.launch {
+            val habits = habitRepository.activeHabits()
+            val conversationId = state.value.conversationId
+            when (val result = voiceRepository.command(clean, habits, conversationId)) {
+                is AppResult.Success -> {
+                    habitRepository.applyVoiceCommand(result.data)
+                    _state.update {
+                        it.copy(
+                            response = result.data.response,
+                            messages = it.messages + VoiceMessageUi("assistant", result.data.response),
+                            quickReplies = result.data.quickReplies,
+                            conversationId = result.data.conversationId ?: it.conversationId,
+                            error = null
+                        )
+                    }
+                }
+                is AppResult.Error -> {
+                    _state.update {
+                        it.copy(
+                            response = "",
+                            messages = it.messages + VoiceMessageUi("assistant", result.message),
+                            error = result.message
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

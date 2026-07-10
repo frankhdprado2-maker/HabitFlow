@@ -127,7 +127,9 @@ fun HabitFlowApp() {
                     onAchievements = { navController.navigate(Route.Achievements.path) }
                 )
             }
-            composable(Route.EditProfile.path) { EditProfileScreen(padding) { navController.popBackStack() } }
+            composable(Route.EditProfile.path) {
+                EditProfileScreen(padding = padding, onDone = { navController.popBackStack() })
+            }
             composable(Route.Settings.path) {
                 SettingsScreen(
                     padding = padding,

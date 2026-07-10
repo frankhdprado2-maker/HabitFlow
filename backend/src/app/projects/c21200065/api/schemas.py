@@ -2,7 +2,7 @@
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class LoginRequest(BaseModel):
@@ -15,6 +15,8 @@ class RegisterRequest(LoginRequest):
     name: Optional[str] = None
     username: Optional[str] = None
     goal: Optional[str] = None
+    avatar_key: Optional[str] = None
+    categories: list[str] = Field(default_factory=list)
 
 
 class GoogleLoginRequest(BaseModel):
@@ -42,6 +44,8 @@ class ProfileUpdateRequest(BaseModel):
     username: Optional[str] = None
     goal: Optional[str] = None
     timezone: Optional[str] = None
+    avatar_key: Optional[str] = None
+    categories: list[str] = Field(default_factory=list)
 
 
 class UserProfileResponse(BaseModel):
@@ -53,6 +57,8 @@ class UserProfileResponse(BaseModel):
     goal: str = ""
     timezone: str = "America/Lima"
     avatar_url: Optional[str] = None
+    avatar_key: Optional[str] = None
+    categories: list[str] = Field(default_factory=list)
     profile_complete: bool = False
 
 

@@ -63,15 +63,33 @@ data class ProfileUiState(
     val friends: List<Pair<String, Int>> = emptyList()
 )
 
+data class EditProfileUiState(
+    val name: String = "",
+    val username: String = "",
+    val goal: String = "",
+    val avatarKey: String = "avatar_lavender",
+    val categories: List<String> = listOf("Estudio", "Salud"),
+    val loading: Boolean = false,
+    val saved: Boolean = false,
+    val error: String? = null
+)
+
 data class SettingsUiState(
     val settings: SettingsState = SettingsState(),
     val loggingOut: Boolean = false
+)
+
+data class ThemeUiState(
+    val darkMode: Boolean = true,
+    val accentColor: String = "violet"
 )
 
 data class ProfileSetupUiState(
     val name: String = "",
     val username: String = "",
     val goal: String = "",
+    val avatarKey: String = "avatar_lavender",
+    val categories: List<String> = listOf("Estudio", "Salud"),
     val loading: Boolean = false,
     val saved: Boolean = false,
     val error: String? = null
@@ -87,10 +105,18 @@ data class AchievementsUiState(
     val achievements: List<Achievement> = emptyList()
 )
 
+data class VoiceMessageUi(
+    val author: String,
+    val text: String
+)
+
 data class VoiceUiState(
     val listening: Boolean = false,
     val transcript: String = "",
     val response: String = "",
+    val messages: List<VoiceMessageUi> = emptyList(),
+    val quickReplies: List<String> = emptyList(),
+    val conversationId: String? = null,
     val error: String? = null
 )
 

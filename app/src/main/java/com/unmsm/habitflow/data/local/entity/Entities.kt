@@ -46,3 +46,18 @@ data class NotificationEntity(
     val timestamp: Long,
     val read: Boolean
 )
+
+@Entity(tableName = "user_profile")
+data class UserProfileEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val username: String,
+    val email: String,
+    val bio: String,
+    val goal: String,
+    val timezone: String,
+    val avatarUrl: String?,
+    val avatarKey: String?,
+    val categoriesCsv: String,
+    val profileComplete: Boolean
+)

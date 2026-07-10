@@ -12,8 +12,14 @@ interface HabitDao {
     @Query("SELECT * FROM habits WHERE isActive = 1 ORDER BY reminderTime, name")
     fun observeActive(): Flow<List<HabitEntity>>
 
+    @Query("SELECT * FROM habits WHERE isActive = 1 ORDER BY reminderTime, name")
+    suspend fun activeOnce(): List<HabitEntity>
+
     @Query("SELECT * FROM habits WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<HabitEntity?>
+
+    @Query("SELECT * FROM habits WHERE id = :id LIMIT 1")
+    suspend fun findById(id: String): HabitEntity?
 
     @Query("SELECT * FROM habits WHERE lower(name) = lower(:name) LIMIT 1")
     suspend fun findByName(name: String): HabitEntity?

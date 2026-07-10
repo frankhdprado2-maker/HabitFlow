@@ -11,6 +11,8 @@ data class User(
     val level: Int = 0,
     val xp: Int = 0,
     val avatarUrl: String? = null,
+    val avatarKey: String? = null,
+    val categories: List<String> = emptyList(),
     val profileComplete: Boolean = false
 )
 
@@ -75,5 +77,17 @@ data class VoiceCommandResult(
     val response: String,
     val habitId: String? = null,
     val habitName: String? = null,
-    val status: HabitStatus? = null
+    val status: HabitStatus? = null,
+    val question: String? = null,
+    val quickReplies: List<String> = emptyList(),
+    val events: List<VoiceEventResult> = emptyList(),
+    val conversationId: String? = null
+)
+
+data class VoiceEventResult(
+    val habitId: String?,
+    val habitName: String,
+    val status: HabitStatus,
+    val quantity: Double? = null,
+    val unit: String? = null
 )

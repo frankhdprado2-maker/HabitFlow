@@ -48,7 +48,9 @@ data class ProfileUpdateRequest(
     val name: String,
     val username: String? = null,
     val goal: String? = null,
-    val timezone: String? = "America/Lima"
+    val timezone: String? = "America/Lima",
+    @Json(name = "avatar_key") val avatarKey: String? = null,
+    val categories: List<String> = emptyList()
 )
 
 @JsonClass(generateAdapter = true)
@@ -61,5 +63,7 @@ data class UserDto(
     val goal: String? = null,
     val timezone: String? = null,
     @Json(name = "avatar_url") val avatarUrl: String? = null,
+    @Json(name = "avatar_key") val avatarKey: String? = null,
+    val categories: List<String> = emptyList(),
     @Json(name = "profile_complete") val profileComplete: Boolean = false
 )

@@ -16,6 +16,7 @@ import com.unmsm.habitflow.domain.model.HabitEvent
 import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.domain.model.NotificationKind
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
+import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.util.AppResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -32,6 +33,8 @@ class HabitRepository @Inject constructor(
     private val eventApi: HabitEventApi
 ) {
     fun observeHabits(): Flow<List<Habit>> = habitDao.observeActive().map { habits -> habits.map { it.toDomain() } }
+
+    suspend fun activeHabits(): List<Habit> = habitDao.activeOnce().map { it.toDomain() }
 
     fun observeHabit(id: String): Flow<Habit?> = habitDao.observeById(id).map { it?.toDomain() }
 
@@ -85,21 +88,42 @@ class HabitRepository @Inject constructor(
     }
 
     suspend fun applyVoiceCommand(result: VoiceCommandResult): AppResult<HabitEvent>? {
-        val habitName = result.habitName?.trim().orEmpty()
-        val status = result.status ?: return null
-        if (result.intent != "registrar_habito" || habitName.isBlank()) return null
+        if (result.intent != "registrar_habito") return null
+        val events = result.events.ifEmpty {
+            val habitName = result.habitName?.trim().orEmpty()
+            val status = result.status ?: return null
+            if (habitName.isBlank()) return null
+            listOf(VoiceEventResult(result.habitId, habitName, status))
+        }
 
-        val habit = habitDao.findByName(habitName)?.toDomain()
-            ?: Habit(
-                id = UUID.randomUUID().toString(),
-                name = habitName.replaceFirstChar { it.uppercase() },
-                icon = "mic",
-                frequency = "Diario",
-                reminderTime = "Sin hora",
-                category = "Voz"
-            ).also { habitDao.upsert(it.toEntity()) }
+        var lastResult: AppResult<HabitEvent>? = null
+        for (event in events) {
+            val habitName = event.habitName.trim()
+            if (habitName.isBlank()) continue
+            val habit = event.habitId?.let { habitDao.findById(it)?.toDomain() }
+                ?: habitDao.findByName(habitName)?.toDomain()
+                ?: Habit(
+                    id = event.habitId ?: UUID.randomUUID().toString(),
+                    name = habitName.replaceFirstChar { it.uppercase() },
+                    icon = "mic",
+                    frequency = "Diario",
+                    reminderTime = "Sin hora",
+                    category = "Voz"
+                ).also { habitDao.upsert(it.toEntity()) }
 
-        return markHabit(habit, status, "Registrado por voz")
+            lastResult = markHabit(habit, event.status, voiceNote(event))
+        }
+        return lastResult
+    }
+
+    private fun voiceNote(event: VoiceEventResult): String {
+        val quantity = event.quantity
+        val unit = event.unit.orEmpty()
+        return if (quantity != null && unit.isNotBlank()) {
+            "Registrado por voz: ${quantity.toString().trimEnd('0').trimEnd('.')} $unit"
+        } else {
+            "Registrado por voz"
+        }
     }
 
     suspend fun markHabit(habit: Habit, status: HabitStatus, note: String = ""): AppResult<HabitEvent> {

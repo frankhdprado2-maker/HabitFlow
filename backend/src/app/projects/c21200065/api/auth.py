@@ -41,6 +41,8 @@ async def register(payload: RegisterRequest, service: AuthService = Depends(get_
             payload.name,
             payload.username,
             payload.goal,
+            payload.avatar_key,
+            payload.categories,
         )
         refresh_token = await service.create_refresh_token(user_id, payload.email, payload.device_id)
         return TokenResponse(access_token=create_token(user_id, payload.email), refresh_token=refresh_token)
@@ -85,6 +87,8 @@ async def update_me(
             payload.username,
             payload.goal,
             payload.timezone,
+            payload.avatar_key,
+            payload.categories,
         )
     except InvalidCredentialsError:
         raise HTTPException(status_code=401, detail="Invalid token") from None

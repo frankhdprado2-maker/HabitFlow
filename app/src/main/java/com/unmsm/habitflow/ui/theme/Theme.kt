@@ -1,8 +1,8 @@
 package com.unmsm.habitflow.ui.theme
 
-import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
@@ -10,13 +10,11 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
+private fun darkClayColorScheme(accentColor: String) = darkColorScheme(
+    primary = accentFor(accentColor, dark = true),
     onPrimary = DarkBackground,
     primaryContainer = Color(0xFF3A2E76),
     secondary = ClayMint,
@@ -30,8 +28,8 @@ private val DarkColorScheme = darkColorScheme(
     outline = Color(0xFF6F668B)
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = ClayPurple,
+private fun lightClayColorScheme(accentColor: String) = lightColorScheme(
+    primary = accentFor(accentColor, dark = false),
     onPrimary = Color.White,
     primaryContainer = ClayLavender,
     onPrimaryContainer = ClayPurpleDeep,
@@ -62,16 +60,17 @@ private val LightColorScheme = lightColorScheme(
 )
 
 private val ClayShapes = Shapes(
-    extraSmall = RoundedCornerShape(14.dp),
-    small = RoundedCornerShape(18.dp),
-    medium = RoundedCornerShape(24.dp),
-    large = RoundedCornerShape(28.dp),
-    extraLarge = RoundedCornerShape(34.dp)
+    extraSmall = RoundedCornerShape(ClayTokens.Radius.Small),
+    small = RoundedCornerShape(ClayTokens.Radius.Small),
+    medium = RoundedCornerShape(ClayTokens.Radius.Medium),
+    large = RoundedCornerShape(ClayTokens.Radius.Large),
+    extraLarge = RoundedCornerShape(ClayTokens.Radius.XLarge)
 )
 
 @Composable
 fun HabitFlowTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    accentColor: String = "violet",
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
@@ -82,8 +81,8 @@ fun HabitFlowTheme(
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
 
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+        darkTheme -> darkClayColorScheme(accentColor)
+        else -> lightClayColorScheme(accentColor)
     }
 
     MaterialTheme(
@@ -93,3 +92,11 @@ fun HabitFlowTheme(
         content = content
     )
 }
+
+private fun accentFor(accentColor: String, dark: Boolean): Color =
+    when (accentColor) {
+        "mint" -> if (dark) Color(0xFF8CEAD9) else Color(0xFF208C7D)
+        "coral" -> if (dark) Color(0xFFFFB0BE) else Color(0xFFD94F70)
+        "amber" -> if (dark) Color(0xFFFFD97A) else Color(0xFFAA6B00)
+        else -> if (dark) Purple80 else ClayPurple
+    }

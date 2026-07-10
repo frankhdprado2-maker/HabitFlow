@@ -152,7 +152,9 @@ class ProfileSetupViewModel @Inject constructor(
                         it.copy(
                             name = if (user.profileComplete) user.name else "",
                             username = user.username,
-                            goal = user.goal
+                            goal = user.goal,
+                            avatarKey = user.avatarKey ?: "avatar_lavender",
+                            categories = user.categories.ifEmpty { listOf("Estudio", "Salud") }
                         )
                     }
                 }
@@ -164,6 +166,11 @@ class ProfileSetupViewModel @Inject constructor(
     fun updateName(value: String) = _state.update { it.copy(name = value, error = null) }
     fun updateUsername(value: String) = _state.update { it.copy(username = value, error = null) }
     fun updateGoal(value: String) = _state.update { it.copy(goal = value, error = null) }
+    fun updateAvatar(value: String) = _state.update { it.copy(avatarKey = value, error = null) }
+    fun toggleCategory(value: String) = _state.update { state ->
+        val categories = if (value in state.categories) state.categories - value else state.categories + value
+        state.copy(categories = categories, error = null)
+    }
 
     fun save() {
         val current = state.value
@@ -173,7 +180,7 @@ class ProfileSetupViewModel @Inject constructor(
         }
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            when (val result = authRepository.updateProfile(current.name, current.username, current.goal)) {
+            when (val result = authRepository.updateProfile(current.name, current.username, current.goal, current.avatarKey, current.categories)) {
                 is AppResult.Success -> _state.update { it.copy(loading = false, saved = true) }
                 is AppResult.Error -> _state.update { it.copy(loading = false, error = result.message) }
             }

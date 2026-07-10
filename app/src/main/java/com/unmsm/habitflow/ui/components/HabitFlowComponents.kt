@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.unmsm.habitflow.domain.model.Habit
 import com.unmsm.habitflow.domain.model.HabitStatus
+import com.unmsm.habitflow.ui.theme.ClayTokens
 
 @Composable
 fun SectionTitle(title: String, modifier: Modifier = Modifier) {
@@ -54,10 +55,10 @@ fun ClayCard(
     containerColor: Color = MaterialTheme.colorScheme.surface,
     content: @Composable () -> Unit
 ) {
-    val shape = RoundedCornerShape(26.dp)
+    val shape = RoundedCornerShape(ClayTokens.Radius.Large)
     val cardModifier = modifier
         .shadow(
-            elevation = 16.dp,
+            elevation = ClayTokens.Elevation.Resting,
             shape = shape,
             clip = false,
             ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
@@ -65,7 +66,7 @@ fun ClayCard(
         )
     val colors = CardDefaults.cardColors(containerColor = containerColor)
     val border = BorderStroke(1.dp, Color.White.copy(alpha = 0.72f))
-    val elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 2.dp)
+    val elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = ClayTokens.Elevation.Pressed)
 
     if (onClick == null) {
         Card(
@@ -93,7 +94,7 @@ fun MetricTile(label: String, value: String, modifier: Modifier = Modifier) {
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.surface
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(ClayTokens.Spacing.Medium)) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         }
@@ -107,14 +108,14 @@ fun HabitRow(habit: Habit, completed: Boolean = false, onMark: () -> Unit, onOpe
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(ClayTokens.Spacing.Medium),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(46.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .size(ClayTokens.Size.IconTile)
+                    .clip(RoundedCornerShape(ClayTokens.Radius.Small))
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
@@ -143,7 +144,7 @@ fun StatusBadge(status: HabitStatus) {
         HabitStatus.Failed -> MaterialTheme.colorScheme.error
         HabitStatus.Pending -> MaterialTheme.colorScheme.outline
     }
-    Surface(color = color.copy(alpha = 0.18f), shape = RoundedCornerShape(18.dp)) {
+    Surface(color = color.copy(alpha = 0.18f), shape = RoundedCornerShape(ClayTokens.Radius.Small)) {
         Text(status.name, color = color, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
     }
 }
@@ -155,7 +156,7 @@ fun ProgressBar(label: String, value: Float) {
             Text(label, style = MaterialTheme.typography.bodyMedium)
             Text("${(value * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
         }
-        LinearProgressIndicator(progress = { value.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(10.dp)))
+        LinearProgressIndicator(progress = { value.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(ClayTokens.Size.ProgressHeight).clip(RoundedCornerShape(ClayTokens.Radius.Small)))
     }
 }
 
@@ -166,7 +167,7 @@ fun FormField(value: String, label: String, onChange: (String) -> Unit, modifier
         onValueChange = onChange,
         label = { Text(label) },
         singleLine = true,
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(ClayTokens.Radius.Medium),
         modifier = modifier.fillMaxWidth()
     )
 }
@@ -175,8 +176,8 @@ fun FormField(value: String, label: String, onChange: (String) -> Unit, modifier
 fun PrimaryAction(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Button(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth().height(54.dp),
-        shape = RoundedCornerShape(24.dp),
+        modifier = modifier.fillMaxWidth().height(ClayTokens.Size.ButtonHeight),
+        shape = RoundedCornerShape(ClayTokens.Radius.Medium),
         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp, pressedElevation = 2.dp)
     ) {

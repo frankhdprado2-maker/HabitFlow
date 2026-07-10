@@ -4,6 +4,7 @@ import com.unmsm.habitflow.data.local.entity.AchievementEntity
 import com.unmsm.habitflow.data.local.entity.HabitEntity
 import com.unmsm.habitflow.data.local.entity.HabitEventEntity
 import com.unmsm.habitflow.data.local.entity.NotificationEntity
+import com.unmsm.habitflow.data.local.entity.UserProfileEntity
 import com.unmsm.habitflow.data.remote.dto.GeoEventDto
 import com.unmsm.habitflow.data.remote.dto.UserDto
 import com.unmsm.habitflow.data.remote.dto.VoiceCommandResponse
@@ -15,6 +16,7 @@ import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.domain.model.NotificationKind
 import com.unmsm.habitflow.domain.model.User
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
+import com.unmsm.habitflow.domain.model.VoiceEventResult
 import java.time.Instant
 
 fun UserDto.toDomain() = User(
@@ -26,6 +28,36 @@ fun UserDto.toDomain() = User(
     goal = goal.orEmpty(),
     timezone = timezone ?: "America/Lima",
     avatarUrl = avatarUrl,
+    avatarKey = avatarKey,
+    categories = categories,
+    profileComplete = profileComplete
+)
+
+fun User.toEntity() = UserProfileEntity(
+    id = id,
+    name = name,
+    username = username,
+    email = email,
+    bio = bio,
+    goal = goal,
+    timezone = timezone,
+    avatarUrl = avatarUrl,
+    avatarKey = avatarKey,
+    categoriesCsv = categories.joinToString(","),
+    profileComplete = profileComplete
+)
+
+fun UserProfileEntity.toDomain() = User(
+    id = id,
+    name = name,
+    username = username,
+    email = email,
+    bio = bio,
+    goal = goal,
+    timezone = timezone,
+    avatarUrl = avatarUrl,
+    avatarKey = avatarKey,
+    categories = categoriesCsv.split(",").map { it.trim() }.filter { it.isNotBlank() },
     profileComplete = profileComplete
 )
 
@@ -72,10 +104,22 @@ fun AppNotification.toEntity() = NotificationEntity(id, title, message, kind.nam
 
 fun VoiceCommandResponse.toDomain() = VoiceCommandResult(
     intent = intent,
-    response = response.ifBlank { "Listo, entendí tu comando." },
+    response = response.ifBlank { "Listo, entendi tu comando." },
     habitId = habitId,
     habitName = habitName,
-    status = status?.toHabitStatus()
+    status = status?.toHabitStatus(),
+    question = question,
+    quickReplies = quickReplies,
+    events = events.map {
+        VoiceEventResult(
+            habitId = it.habitId,
+            habitName = it.habitName,
+            status = it.status.toHabitStatus(),
+            quantity = it.quantity,
+            unit = it.unit
+        )
+    },
+    conversationId = conversationId
 )
 
 fun String.toHabitStatus(): HabitStatus =

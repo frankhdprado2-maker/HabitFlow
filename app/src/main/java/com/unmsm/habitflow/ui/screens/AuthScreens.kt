@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -181,6 +182,26 @@ fun ProfileSetupScreen(
                 FormField(state.username, "Username", viewModel::updateUsername)
                 VerticalSpacer()
                 FormField(state.goal, "Objetivo principal", viewModel::updateGoal)
+                VerticalSpacer()
+                Text("Avatar", fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("avatar_lavender" to "LV", "avatar_mint" to "MT", "avatar_coral" to "CR").forEach { (key, label) ->
+                        AssistChip(
+                            onClick = { viewModel.updateAvatar(key) },
+                            label = { Text(if (state.avatarKey == key) "$label OK" else label) }
+                        )
+                    }
+                }
+                VerticalSpacer()
+                Text("Categorias", fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Estudio", "Salud", "Bienestar").forEach { category ->
+                        AssistChip(
+                            onClick = { viewModel.toggleCategory(category) },
+                            label = { Text(if (category in state.categories) "$category OK" else category) }
+                        )
+                    }
+                }
                 if (state.error != null) {
                     Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
                 }

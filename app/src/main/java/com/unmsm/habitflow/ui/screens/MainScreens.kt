@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -49,6 +50,7 @@ import com.unmsm.habitflow.ui.components.SectionTitle
 import com.unmsm.habitflow.ui.components.StatusBadge
 import com.unmsm.habitflow.ui.components.VerticalSpacer
 import com.unmsm.habitflow.ui.viewmodel.AchievementsViewModel
+import com.unmsm.habitflow.ui.viewmodel.EditProfileViewModel
 import com.unmsm.habitflow.ui.viewmodel.HabitDetailViewModel
 import com.unmsm.habitflow.ui.viewmodel.HistoryViewModel
 import com.unmsm.habitflow.ui.viewmodel.HomeViewModel
@@ -245,11 +247,33 @@ fun ProfileScreen(padding: PaddingValues, onEdit: () -> Unit, onAchievements: ()
     val state by viewModel.state.collectAsState()
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Text(state.user.name, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("@${state.user.username} - nivel ${state.user.level} - racha 0")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
-                Button(onClick = onEdit) { Text("Editar perfil") }
-                Button(onClick = onAchievements) { Text("Logros") }
+            ClayCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(
+                            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(state.user.avatarKey?.takeLast(2)?.uppercase() ?: state.user.name.take(2).uppercase(), fontWeight = FontWeight.Bold)
+                        }
+                        Column {
+                            Text(state.user.name, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                            Text("@${state.user.username} - nivel ${state.user.level} - racha 0")
+                        }
+                    }
+                    if (state.user.categories.isNotEmpty()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            state.user.categories.take(4).forEach { category ->
+                                AssistChip(onClick = {}, label = { Text(category) })
+                            }
+                        }
+                    }
+                    Text(state.user.goal.ifBlank { "Ser constante" })
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                        Button(onClick = onEdit) { Text("Editar perfil") }
+                        Button(onClick = onAchievements) { Text("Logros") }
+                    }
+                }
             }
         }
         item { SectionTitle("Insignias") }
@@ -266,13 +290,60 @@ fun ProfileScreen(padding: PaddingValues, onEdit: () -> Unit, onAchievements: ()
 }
 
 @Composable
-fun EditProfileScreen(padding: PaddingValues, onDone: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Editar perfil", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        listOf("Nombre", "Username", "Email", "Bio", "Objetivo principal", "Zona horaria").forEach { label ->
-            OutlinedTextField("", {}, label = { Text(label) }, modifier = Modifier.fillMaxWidth())
+fun EditProfileScreen(
+    padding: PaddingValues,
+    onDone: () -> Unit,
+    viewModel: EditProfileViewModel = hiltViewModel()
+) {
+    val state by viewModel.state.collectAsState()
+    LaunchedEffect(state.saved) {
+        if (state.saved) onDone()
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text("Editar perfil", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         }
-        PrimaryAction("Guardar", onDone)
+        item {
+            ClayCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(state.name, viewModel::updateName, label = { Text("Nombre") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(state.username, viewModel::updateUsername, label = { Text("Username") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(state.goal, viewModel::updateGoal, label = { Text("Objetivo principal") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+        }
+        item { SectionTitle("Avatar") }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("avatar_lavender" to "LV", "avatar_mint" to "MT", "avatar_coral" to "CR", "avatar_amber" to "AM").forEach { (key, label) ->
+                    AssistChip(
+                        onClick = { viewModel.updateAvatar(key) },
+                        label = { Text(if (state.avatarKey == key) "$label OK" else label) }
+                    )
+                }
+            }
+        }
+        item { SectionTitle("Categorias") }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Estudio", "Salud", "Bienestar", "Productividad").forEach { category ->
+                    AssistChip(
+                        onClick = { viewModel.toggleCategory(category) },
+                        label = { Text(if (category in state.categories) "$category OK" else category) }
+                    )
+                }
+            }
+        }
+        if (state.error != null) {
+            item { Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error) }
+        }
+        item {
+            PrimaryAction(if (state.loading) "Guardando..." else "Guardar perfil", viewModel::save)
+        }
     }
 }
 
@@ -288,6 +359,15 @@ fun SettingsScreen(
         Text("Configuración", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         SettingSwitch("Notificaciones", state.settings.notifications, viewModel::toggleNotifications)
         SettingSwitch("Modo oscuro", state.settings.darkMode, viewModel::toggleDarkMode)
+        Text("Color de acento")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("violet" to "Violeta", "mint" to "Menta", "coral" to "Coral", "amber" to "Ambar").forEach { (key, label) ->
+                AssistChip(
+                    onClick = { viewModel.setAccentColor(key) },
+                    label = { Text(if (state.settings.accentColor == key) "$label OK" else label) }
+                )
+            }
+        }
         SettingSwitch("Biometría", state.settings.biometric, viewModel::toggleBiometric)
         SettingSwitch("Perfil público", state.settings.publicProfile, viewModel::togglePublicProfile)
         Text("Idioma: ${state.settings.language}")
@@ -345,46 +425,55 @@ fun VoiceScreen(
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            IconButton(onClick = viewModel::listen, modifier = Modifier.size(92.dp)) {
-                Icon(Icons.Default.Mic, contentDescription = "Hablar", modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
-            }
-            Text(if (state.listening) "Escuchando..." else "Dictado de voz", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Toca el microfono y di una frase corta.")
-        }
-        item {
-            ClayCard(Modifier.fillMaxWidth(), containerColor = MaterialTheme.colorScheme.surfaceVariant) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Ejemplos", fontWeight = FontWeight.SemiBold)
-                    Text("Ya corri 30 minutos")
-                    Text("Complete leer 20 paginas")
-                    Text("Salte tomar agua")
-                    Text("No pude estudiar algoritmos")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Text("Voz", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(if (state.listening) "Escuchando..." else "Conversacion activa")
+                }
+                IconButton(onClick = viewModel::listen, modifier = Modifier.size(68.dp)) {
+                    Icon(Icons.Default.Mic, contentDescription = "Hablar", modifier = Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
-        item {
-            ClayCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Como funciona", fontWeight = FontWeight.SemiBold)
-                    Text("La app convierte tu voz en texto, envia la frase al backend y registra el habito localmente si entiende una accion.")
-                    Text("Si no quieres usar voz, crea el habito con el formulario manual.")
-                }
-            }
-        }
-        if (state.transcript.isNotBlank() || state.response.isNotBlank() || state.error != null) {
+        if (state.messages.isEmpty()) {
             item {
-                ClayCard(Modifier.fillMaxWidth()) {
+                ClayCard(Modifier.fillMaxWidth(), containerColor = MaterialTheme.colorScheme.surfaceVariant) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (state.transcript.isNotBlank()) Text(state.transcript, fontWeight = FontWeight.SemiBold)
-                        if (state.response.isNotBlank()) Text(state.response, color = MaterialTheme.colorScheme.tertiary)
-                        if (state.error != null) Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error)
+                        Text("Prueba con una frase", fontWeight = FontWeight.SemiBold)
+                        Text("Complete leer 20 paginas")
+                        Text("Salte tomar agua")
+                        Text("No pude estudiar algoritmos")
                     }
                 }
             }
+        }
+        items(state.messages) { message ->
+            Box(Modifier.fillMaxWidth(), contentAlignment = if (message.author == "user") Alignment.CenterEnd else Alignment.CenterStart) {
+                ClayCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(if (message.author == "user") "Tu" else "HabitFlow", fontWeight = FontWeight.SemiBold)
+                        Text(message.text)
+                    }
+                }
+            }
+        }
+        if (state.response == "Procesando...") {
+            item { Text("Procesando...", color = MaterialTheme.colorScheme.tertiary) }
+        }
+        if (state.quickReplies.isNotEmpty()) {
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(state.quickReplies) { reply ->
+                        AssistChip(onClick = { viewModel.sendText(reply) }, label = { Text(reply) })
+                    }
+                }
+            }
+        }
+        if (state.error != null) {
+            item { Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error) }
         }
         item {
             Button(onClick = onManual, modifier = Modifier.fillMaxWidth()) { Text("Registrar manualmente") }

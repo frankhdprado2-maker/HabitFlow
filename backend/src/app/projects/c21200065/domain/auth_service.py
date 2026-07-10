@@ -1,4 +1,5 @@
 import datetime
+import json
 import re
 from typing import Optional
 
@@ -44,6 +45,8 @@ class AuthService:
         name: Optional[str] = None,
         username: Optional[str] = None,
         goal: Optional[str] = None,
+        avatar_key: Optional[str] = None,
+        categories: Optional[list[str]] = None,
     ) -> str:
         if await self._user_repo.find_by_email(email):
             raise UserAlreadyExistsError
@@ -57,6 +60,8 @@ class AuthService:
                 "username": _username_or_email(username, email),
                 "goal": _clean_text(goal),
                 "timezone": "America/Lima",
+                "avatar_key": _clean_text(avatar_key),
+                "categories": _categories_to_json(categories or []),
             }
         )
         return str(result.inserted_id)
@@ -117,6 +122,8 @@ class AuthService:
         username: Optional[str] = None,
         goal: Optional[str] = None,
         timezone: Optional[str] = None,
+        avatar_key: Optional[str] = None,
+        categories: Optional[list[str]] = None,
     ) -> dict:
         current = await self._user_repo.find_by_id(user_id)
         if not current:
@@ -127,6 +134,8 @@ class AuthService:
             "username": _username_or_email(username, current["email"]),
             "goal": _clean_text(goal),
             "timezone": _clean_text(timezone) or "America/Lima",
+            "avatar_key": _clean_text(avatar_key),
+            "categories": _categories_to_json(categories or []),
         }
         user = await self._user_repo.update_user(user_id, values) or current
         return _profile_from_user(user)
@@ -186,6 +195,8 @@ def _profile_from_email(user_id: str, email: str) -> dict:
         "goal": "",
         "timezone": "America/Lima",
         "avatar_url": None,
+        "avatar_key": None,
+        "categories": [],
         "profile_complete": False,
     }
 
@@ -204,5 +215,26 @@ def _profile_from_user(user: dict) -> dict:
         "goal": goal,
         "timezone": user.get("timezone") or "America/Lima",
         "avatar_url": user.get("avatar_url"),
+        "avatar_key": user.get("avatar_key"),
+        "categories": _categories_from_json(user.get("categories")),
         "profile_complete": bool(name and username),
     }
+
+
+def _categories_to_json(categories: list[str]) -> str:
+    clean = []
+    for category in categories:
+        value = _clean_text(category)
+        if value and value not in clean:
+            clean.append(value[:40])
+    return json.dumps(clean[:8])
+
+
+def _categories_from_json(value: Optional[str]) -> list[str]:
+    if not value:
+        return []
+    try:
+        data = json.loads(value)
+    except json.JSONDecodeError:
+        data = value.split(",")
+    return [str(item).strip() for item in data if str(item).strip()]

@@ -2,15 +2,18 @@ package com.unmsm.habitflow.data.repository
 
 import com.unmsm.habitflow.data.auth.TokenManager
 import com.unmsm.habitflow.data.local.HabitFlowDatabase
+import com.unmsm.habitflow.data.local.dao.UserProfileDao
 import com.unmsm.habitflow.data.remote.api.AuthApi
 import com.unmsm.habitflow.data.remote.dto.GoogleLoginRequest
 import com.unmsm.habitflow.data.remote.dto.LoginRequest
 import com.unmsm.habitflow.data.remote.dto.ProfileUpdateRequest
 import com.unmsm.habitflow.data.remote.dto.RegisterRequest
+import com.unmsm.habitflow.data.toEntity
 import com.unmsm.habitflow.data.toDomain
 import com.unmsm.habitflow.domain.model.User
 import com.unmsm.habitflow.util.AppResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.IOException
@@ -21,7 +24,8 @@ import javax.inject.Singleton
 class AuthRepository @Inject constructor(
     private val authApi: AuthApi,
     private val tokenManager: TokenManager,
-    private val database: HabitFlowDatabase
+    private val database: HabitFlowDatabase,
+    private val userProfileDao: UserProfileDao
 ) {
     suspend fun login(email: String, password: String): AppResult<Unit> =
         runNetwork {
@@ -60,17 +64,38 @@ class AuthRepository @Inject constructor(
         }
 
     suspend fun me(): AppResult<User> =
-        runNetwork { authApi.me().toDomain() }
+        try {
+            val user = authApi.me().toDomain()
+            userProfileDao.upsert(user.toEntity())
+            AppResult.Success(user)
+        } catch (error: Throwable) {
+            val fallback = userProfileDao.observeCurrent().first()
+            if (fallback != null) {
+                AppResult.Success(fallback.toDomain())
+            } else {
+                networkError(error)
+            }
+        }
 
-    suspend fun updateProfile(name: String, username: String, goal: String): AppResult<User> =
+    suspend fun updateProfile(
+        name: String,
+        username: String,
+        goal: String,
+        avatarKey: String? = null,
+        categories: List<String> = emptyList()
+    ): AppResult<User> =
         runNetwork {
-            authApi.updateMe(
+            val user = authApi.updateMe(
                 ProfileUpdateRequest(
                     name = name.trim(),
                     username = username.trim().ifBlank { null },
-                    goal = goal.trim().ifBlank { null }
+                    goal = goal.trim().ifBlank { null },
+                    avatarKey = avatarKey,
+                    categories = categories
                 )
             ).toDomain()
+            userProfileDao.upsert(user.toEntity())
+            user
         }
 
     fun isLoggedIn(): Boolean = !tokenManager.accessToken().isNullOrBlank()
@@ -91,16 +116,20 @@ suspend inline fun <T> runNetwork(crossinline block: suspend () -> T): AppResult
     try {
         AppResult.Success(block())
     } catch (error: Throwable) {
-        val message = when (error) {
-            is HttpException -> when (error.code()) {
-                400 -> "La cuenta ya existe o la solicitud no es valida."
-                401 -> "Credenciales invalidas o token rechazado."
-                422 -> "Email o datos invalidos. Revisa el correo y la contrasena."
-                500 -> "El servidor fallo. Revisa las variables en Render."
-                else -> "Error del servidor HTTP ${error.code()}."
-            }
-            is IOException -> "No hay conexion con el servidor."
-            else -> error.message ?: "No se pudo completar la operacion"
-        }
-        AppResult.Error(message, error)
+        networkError(error)
     }
+
+fun <T> networkError(error: Throwable): AppResult<T> {
+    val message = when (error) {
+        is HttpException -> when (error.code()) {
+            400 -> "La cuenta ya existe o la solicitud no es valida."
+            401 -> "Credenciales invalidas o token rechazado."
+            422 -> "Email o datos invalidos. Revisa el correo y la contrasena."
+            500 -> "El servidor fallo. Revisa las variables en Render."
+            else -> "Error del servidor HTTP ${error.code()}."
+        }
+        is IOException -> "No hay conexion con el servidor."
+        else -> error.message ?: "No se pudo completar la operacion"
+    }
+    return AppResult.Error(message, error)
+}

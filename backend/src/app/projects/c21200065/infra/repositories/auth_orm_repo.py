@@ -41,6 +41,8 @@ class UserORMRepository:
             goal=user.get("goal"),
             timezone=user.get("timezone"),
             avatar_url=user.get("avatar_url"),
+            avatar_key=user.get("avatar_key"),
+            categories=user.get("categories"),
         )
         async with async_session() as session:
             session.add(record)
@@ -110,4 +112,6 @@ def _user_to_dict(user: AuthUserORM | None) -> Optional[dict[str, Any]]:
         "goal": user.goal,
         "timezone": user.timezone,
         "avatar_url": user.avatar_url,
+        "avatar_key": user.avatar_key,
+        "categories": user.categories,
     }

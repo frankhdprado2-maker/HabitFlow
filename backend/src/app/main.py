@@ -27,6 +27,8 @@ async def _ensure_auth_profile_columns(connection):
         "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS goal TEXT",
         "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS timezone TEXT",
         "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS avatar_url TEXT",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS avatar_key TEXT",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS categories TEXT",
     ):
         await connection.execute(text(statement))
 
