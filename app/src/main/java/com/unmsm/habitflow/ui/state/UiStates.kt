@@ -3,8 +3,10 @@ package com.unmsm.habitflow.ui.state
 import com.unmsm.habitflow.data.repository.SettingsState
 import com.unmsm.habitflow.domain.model.Achievement
 import com.unmsm.habitflow.domain.model.AppNotification
+import com.unmsm.habitflow.domain.model.CosmeticReward
 import com.unmsm.habitflow.domain.model.Habit
 import com.unmsm.habitflow.domain.model.HabitEvent
+import com.unmsm.habitflow.domain.model.PlanRecommendation
 import com.unmsm.habitflow.domain.model.User
 
 data class LoginUiState(
@@ -102,7 +104,9 @@ data class NotificationsUiState(
 data class AchievementsUiState(
     val level: Int = 0,
     val xp: Int = 0,
-    val achievements: List<Achievement> = emptyList()
+    val achievements: List<Achievement> = emptyList(),
+    val cosmetics: List<CosmeticReward> = emptyList(),
+    val plans: List<PlanRecommendation> = emptyList()
 )
 
 data class VoiceMessageUi(

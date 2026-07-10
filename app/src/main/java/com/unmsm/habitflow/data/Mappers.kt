@@ -1,9 +1,11 @@
 package com.unmsm.habitflow.data
 
 import com.unmsm.habitflow.data.local.entity.AchievementEntity
+import com.unmsm.habitflow.data.local.entity.CosmeticRewardEntity
 import com.unmsm.habitflow.data.local.entity.HabitEntity
 import com.unmsm.habitflow.data.local.entity.HabitEventEntity
 import com.unmsm.habitflow.data.local.entity.NotificationEntity
+import com.unmsm.habitflow.data.local.entity.PlanRecommendationEntity
 import com.unmsm.habitflow.data.local.entity.UserProfileEntity
 import com.unmsm.habitflow.data.remote.dto.GeoEventDto
 import com.unmsm.habitflow.data.remote.dto.UserDto
@@ -14,9 +16,12 @@ import com.unmsm.habitflow.domain.model.Habit
 import com.unmsm.habitflow.domain.model.HabitEvent
 import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.domain.model.NotificationKind
+import com.unmsm.habitflow.domain.model.CosmeticReward
+import com.unmsm.habitflow.domain.model.PlanRecommendation
 import com.unmsm.habitflow.domain.model.User
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
+import com.unmsm.habitflow.domain.model.VoicePlanResult
 import java.time.Instant
 
 fun UserDto.toDomain() = User(
@@ -91,6 +96,30 @@ fun AchievementEntity.toDomain() = Achievement(id, title, description, requireme
 
 fun Achievement.toEntity() = AchievementEntity(id, title, description, requirement, unlocked, xp)
 
+fun PlanRecommendationEntity.toDomain() = PlanRecommendation(
+    id = id,
+    title = title,
+    summary = summary,
+    category = category,
+    actions = actionsCsv.split("|").map { it.trim() }.filter { it.isNotBlank() },
+    createdAt = createdAt,
+    accepted = accepted
+)
+
+fun PlanRecommendation.toEntity() = PlanRecommendationEntity(
+    id = id,
+    title = title,
+    summary = summary,
+    category = category,
+    actionsCsv = actions.joinToString("|"),
+    createdAt = createdAt,
+    accepted = accepted
+)
+
+fun CosmeticRewardEntity.toDomain() = CosmeticReward(id, name, description, kind, cost, unlocked, equipped)
+
+fun CosmeticReward.toEntity() = CosmeticRewardEntity(id, name, description, kind, cost, unlocked, equipped)
+
 fun NotificationEntity.toDomain() = AppNotification(
     id = id,
     title = title,
@@ -117,6 +146,14 @@ fun VoiceCommandResponse.toDomain() = VoiceCommandResult(
             status = it.status.toHabitStatus(),
             quantity = it.quantity,
             unit = it.unit
+        )
+    },
+    plan = plan?.let {
+        VoicePlanResult(
+            title = it.title,
+            summary = it.summary,
+            category = it.category,
+            actions = it.actions
         )
     },
     conversationId = conversationId

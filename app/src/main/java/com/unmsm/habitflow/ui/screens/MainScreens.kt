@@ -395,6 +395,33 @@ fun AchievementsScreen(padding: PaddingValues, viewModel: AchievementsViewModel 
             Text("Nivel ${state.level} · ${state.xp} XP")
             LinearProgressIndicator(progress = { state.xp / 1000f }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(10.dp)))
         }
+        if (state.plans.isNotEmpty()) {
+            item { SectionTitle("Planes de IA") }
+            items(state.plans.take(3)) { plan ->
+                ClayCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(plan.title, fontWeight = FontWeight.SemiBold)
+                        Text(plan.summary)
+                        plan.actions.take(3).forEach { action -> Text("- $action") }
+                    }
+                }
+            }
+        }
+        if (state.cosmetics.isNotEmpty()) {
+            item { SectionTitle("Cosmeticos") }
+            items(state.cosmetics) { reward ->
+                ClayCard(Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(reward.name, fontWeight = FontWeight.SemiBold)
+                            Text(reward.description)
+                        }
+                        Text(if (reward.unlocked) "OK" else "${(reward.cost - state.xp).coerceAtLeast(0)} XP")
+                    }
+                }
+            }
+        }
+        item { SectionTitle("Insignias") }
         items(state.achievements) { achievement ->
             ClayCard(Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {

@@ -54,6 +54,26 @@ data class Achievement(
     val xp: Int
 )
 
+data class PlanRecommendation(
+    val id: String,
+    val title: String,
+    val summary: String,
+    val category: String,
+    val actions: List<String>,
+    val createdAt: Long,
+    val accepted: Boolean = false
+)
+
+data class CosmeticReward(
+    val id: String,
+    val name: String,
+    val description: String,
+    val kind: String,
+    val cost: Int,
+    val unlocked: Boolean,
+    val equipped: Boolean = false
+)
+
 enum class NotificationKind {
     StreakRisk,
     AchievementUnlocked,
@@ -81,6 +101,7 @@ data class VoiceCommandResult(
     val question: String? = null,
     val quickReplies: List<String> = emptyList(),
     val events: List<VoiceEventResult> = emptyList(),
+    val plan: VoicePlanResult? = null,
     val conversationId: String? = null
 )
 
@@ -90,4 +111,11 @@ data class VoiceEventResult(
     val status: HabitStatus,
     val quantity: Double? = null,
     val unit: String? = null
+)
+
+data class VoicePlanResult(
+    val title: String,
+    val summary: String,
+    val category: String,
+    val actions: List<String>
 )

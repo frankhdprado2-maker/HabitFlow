@@ -1,28 +1,32 @@
 package com.unmsm.habitflow.data.repository
 
-import android.provider.Settings
 import com.unmsm.habitflow.data.local.dao.AchievementDao
+import com.unmsm.habitflow.data.local.dao.CosmeticRewardDao
 import com.unmsm.habitflow.data.local.dao.HabitDao
 import com.unmsm.habitflow.data.local.dao.HabitEventDao
 import com.unmsm.habitflow.data.local.dao.NotificationDao
+import com.unmsm.habitflow.data.local.dao.PlanRecommendationDao
 import com.unmsm.habitflow.data.remote.api.HabitEventApi
 import com.unmsm.habitflow.data.remote.dto.GeoEventRequest
 import com.unmsm.habitflow.data.toDomain
 import com.unmsm.habitflow.data.toEntity
 import com.unmsm.habitflow.domain.model.Achievement
 import com.unmsm.habitflow.domain.model.AppNotification
+import com.unmsm.habitflow.domain.model.CosmeticReward
 import com.unmsm.habitflow.domain.model.Habit
 import com.unmsm.habitflow.domain.model.HabitEvent
 import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.domain.model.NotificationKind
+import com.unmsm.habitflow.domain.model.PlanRecommendation
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
+import com.unmsm.habitflow.domain.model.VoicePlanResult
 import com.unmsm.habitflow.util.AppResult
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 @Singleton
 class HabitRepository @Inject constructor(
@@ -30,15 +34,23 @@ class HabitRepository @Inject constructor(
     private val eventDao: HabitEventDao,
     private val achievementDao: AchievementDao,
     private val notificationDao: NotificationDao,
+    private val planRecommendationDao: PlanRecommendationDao,
+    private val cosmeticRewardDao: CosmeticRewardDao,
     private val eventApi: HabitEventApi
 ) {
-    fun observeHabits(): Flow<List<Habit>> = habitDao.observeActive().map { habits -> habits.map { it.toDomain() } }
+    fun observeHabits(): Flow<List<Habit>> =
+        habitDao.observeActive().map { habits -> habits.map { it.toDomain() } }
 
     suspend fun activeHabits(): List<Habit> = habitDao.activeOnce().map { it.toDomain() }
 
+    suspend fun recentEvents(limit: Int = 80): List<HabitEvent> = eventDao.recent(limit).map { it.toDomain() }
+
+    suspend fun achievementsSnapshot(): List<Achievement> = achievementDao.allOnce().map { it.toDomain() }
+
     fun observeHabit(id: String): Flow<Habit?> = habitDao.observeById(id).map { it?.toDomain() }
 
-    fun observeEvents(): Flow<List<HabitEvent>> = eventDao.observeAll().map { events -> events.map { it.toDomain() } }
+    fun observeEvents(): Flow<List<HabitEvent>> =
+        eventDao.observeAll().map { events -> events.map { it.toDomain() } }
 
     fun observeEventsForHabit(habitId: String): Flow<List<HabitEvent>> =
         eventDao.observeForHabit(habitId).map { events -> events.map { it.toDomain() } }
@@ -46,31 +58,61 @@ class HabitRepository @Inject constructor(
     fun observeAchievements(): Flow<List<Achievement>> =
         achievementDao.observeAll().map { items -> items.map { it.toDomain() } }
 
+    fun observePlanRecommendations(): Flow<List<PlanRecommendation>> =
+        planRecommendationDao.observeAll().map { items -> items.map { it.toDomain() } }
+
+    fun observeCosmeticRewards(): Flow<List<CosmeticReward>> =
+        cosmeticRewardDao.observeAll().map { items -> items.map { it.toDomain() } }
+
     fun observeNotifications(): Flow<List<AppNotification>> =
         notificationDao.observeAll().map { items -> items.map { it.toDomain() } }
 
     suspend fun ensureSeedData() {
-        if (habitDao.count() > 0) return
-        habitDao.upsertAll(
-            listOf(
-                Habit("study", "Estudiar algoritmos", "school", "Lun-Vie", "08:00", "Universidad", streak = 6, bestStreak = 11),
-                Habit("water", "Tomar agua", "water_drop", "Diario", "10:00", "Salud", streak = 12, bestStreak = 18),
-                Habit("run", "Correr 30 minutos", "directions_run", "Mar-Jue-Sab", "18:30", "Ejercicio", streak = 3, bestStreak = 9),
-                Habit("read", "Leer 20 páginas", "menu_book", "Diario", "21:00", "Crecimiento", streak = 4, bestStreak = 15)
-            ).map { it.toEntity() }
-        )
-        achievementDao.upsertAll(
-            listOf(
-                Achievement("first", "Primer registro", "Marcaste tu primer hábito.", "Completa 1 hábito", true, 100),
-                Achievement("week", "Semana sólida", "Mantén una racha de 7 días.", "Racha de 7 días", false, 250),
-                Achievement("focus", "Modo enfoque", "Completa 5 hábitos de estudio.", "5 registros de estudio", true, 180)
-            ).map { it.toEntity() }
-        )
-        notificationDao.upsertAll(
-            listOf(
-                AppNotification("risk", "Racha en peligro", "Te falta Estudiar algoritmos antes de dormir.", NotificationKind.StreakRisk, System.currentTimeMillis()),
-                AppNotification("weekly", "Resumen semanal", "Completaste 76% de tus hábitos esta semana.", NotificationKind.WeeklySummary, System.currentTimeMillis() - 86_400_000)
-            ).map { it.toEntity() }
+        if (habitDao.count() == 0) {
+            habitDao.upsertAll(
+                listOf(
+                    Habit("study", "Estudiar algoritmos", "school", "Lun-Vie", "08:00", "Universidad", streak = 6, bestStreak = 11),
+                    Habit("water", "Tomar agua", "water_drop", "Diario", "10:00", "Salud", streak = 12, bestStreak = 18),
+                    Habit("run", "Correr 30 minutos", "directions_run", "Mar-Jue-Sab", "18:30", "Ejercicio", streak = 3, bestStreak = 9),
+                    Habit("read", "Leer 20 paginas", "menu_book", "Diario", "21:00", "Crecimiento", streak = 4, bestStreak = 15)
+                ).map { it.toEntity() }
+            )
+            achievementDao.upsertAll(
+                listOf(
+                    Achievement("first", "Primer registro", "Marcaste tu primer habito.", "Completa 1 habito", true, 100),
+                    Achievement("week", "Semana solida", "Manten una racha de 7 dias.", "Racha de 7 dias", false, 250),
+                    Achievement("focus", "Modo enfoque", "Completa 5 habitos de estudio.", "5 registros de estudio", true, 180)
+                ).map { it.toEntity() }
+            )
+            notificationDao.upsertAll(
+                listOf(
+                    AppNotification("risk", "Racha en peligro", "Te falta Estudiar algoritmos antes de dormir.", NotificationKind.StreakRisk, System.currentTimeMillis()),
+                    AppNotification("weekly", "Resumen semanal", "Completaste 76% de tus habitos esta semana.", NotificationKind.WeeklySummary, System.currentTimeMillis() - 86_400_000)
+                ).map { it.toEntity() }
+            )
+        }
+
+        if (cosmeticRewardDao.count() == 0) {
+            cosmeticRewardDao.upsertAll(
+                listOf(
+                    CosmeticReward("avatar_frame_mint", "Marco menta", "Un marco suave para tu avatar.", "avatar_frame", 120, false),
+                    CosmeticReward("theme_coral", "Acento coral", "Variante calida de la paleta clay.", "theme", 220, false),
+                    CosmeticReward("badge_iron", "Constancia de hierro", "Insignia por sostener tu rutina.", "badge", 350, false)
+                ).map { it.toEntity() }
+            )
+        }
+    }
+
+    suspend fun savePlanRecommendation(plan: VoicePlanResult) {
+        planRecommendationDao.upsert(
+            PlanRecommendation(
+                id = UUID.randomUUID().toString(),
+                title = plan.title,
+                summary = plan.summary,
+                category = plan.category,
+                actions = plan.actions,
+                createdAt = System.currentTimeMillis()
+            ).toEntity()
         )
     }
 

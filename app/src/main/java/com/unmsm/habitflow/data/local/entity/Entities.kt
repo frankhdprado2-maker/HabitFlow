@@ -61,3 +61,25 @@ data class UserProfileEntity(
     val categoriesCsv: String,
     val profileComplete: Boolean
 )
+
+@Entity(tableName = "plan_recommendations")
+data class PlanRecommendationEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    val summary: String,
+    val category: String,
+    val actionsCsv: String,
+    val createdAt: Long,
+    val accepted: Boolean
+)
+
+@Entity(tableName = "cosmetic_rewards")
+data class CosmeticRewardEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val description: String,
+    val kind: String,
+    val cost: Int,
+    val unlocked: Boolean,
+    val equipped: Boolean
+)

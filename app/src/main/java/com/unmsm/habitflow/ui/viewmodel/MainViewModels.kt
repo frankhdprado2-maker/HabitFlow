@@ -243,8 +243,22 @@ class NotificationsViewModel @Inject constructor(
 class AchievementsViewModel @Inject constructor(
     habitRepository: HabitRepository
 ) : ViewModel() {
-    val state: StateFlow<AchievementsUiState> = habitRepository.observeAchievements()
-        .map { AchievementsUiState(achievements = it) }
+    val state: StateFlow<AchievementsUiState> = combine(
+        habitRepository.observeAchievements(),
+        habitRepository.observeEvents(),
+        habitRepository.observeCosmeticRewards(),
+        habitRepository.observePlanRecommendations()
+    ) { achievements, events, cosmetics, plans ->
+        val completed = events.count { it.status == HabitStatus.Completed }
+        val xp = completed * 10 + achievements.filter { it.unlocked }.sumOf { it.xp }
+        AchievementsUiState(
+            level = xp / 250,
+            xp = xp,
+            achievements = achievements,
+            cosmetics = cosmetics.map { reward -> reward.copy(unlocked = reward.unlocked || xp >= reward.cost) },
+            plans = plans
+        )
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AchievementsUiState())
 }
 
@@ -373,10 +387,14 @@ class VoiceViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val habits = habitRepository.activeHabits()
+            val recentEvents = habitRepository.recentEvents()
+            val achievements = habitRepository.achievementsSnapshot()
+            val categories = habits.map { it.category }.filter { it.isNotBlank() }.distinct()
             val conversationId = state.value.conversationId
-            when (val result = voiceRepository.command(clean, habits, conversationId)) {
+            when (val result = voiceRepository.command(clean, habits, recentEvents, achievements, categories, conversationId)) {
                 is AppResult.Success -> {
                     habitRepository.applyVoiceCommand(result.data)
+                    result.data.plan?.let { habitRepository.savePlanRecommendation(it) }
                     voiceController.speak(result.data.response)
                     _state.update {
                         it.copy(

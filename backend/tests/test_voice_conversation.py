@@ -1,5 +1,8 @@
 from app.projects.c21200065.domain.voice_conversation_service import (
+    AchievementContext,
+    ConversationContext,
     HabitContext,
+    HabitEventContext,
     VoiceSession,
     handle_voice_turn,
 )
@@ -84,3 +87,38 @@ def test_social_answer_keeps_the_conversation_open() -> None:
     assert result.intent == "aclaracion"
     assert result.events == []
     assert "Que habito" in result.response
+
+
+def test_answers_weekly_progress_from_real_events() -> None:
+    habits = [
+        HabitContext(id="read", name="Leer", category="Estudio"),
+        HabitContext(id="water", name="Tomar agua", category="Salud"),
+    ]
+    context = ConversationContext(
+        events=[
+            HabitEventContext(habit_id="read", habit_name="Leer", status="Completed", timestamp=9_999_999_999_999),
+            HabitEventContext(habit_id="read", habit_name="Leer", status="Completed", timestamp=9_999_999_999_998),
+        ]
+    )
+
+    result = handle_voice_turn("como voy esta semana", habits, context=context)
+
+    assert result.intent == "consultar_habito"
+    assert "Leer: 2" in result.response
+    assert "Tomar agua" in result.response
+
+
+def test_builds_safe_plan_recommendation() -> None:
+    context = ConversationContext(
+        categories=["Estudio"],
+        achievements=[
+            AchievementContext("week", "Semana solida", "", "Racha de 7 dias", False, 250),
+        ],
+    )
+
+    result = handle_voice_turn("quiero ser mas constante leyendo", [], context=context)
+
+    assert result.intent == "plan_recomendacion"
+    assert result.plan is not None
+    assert result.plan.category == "Estudio"
+    assert result.plan.actions

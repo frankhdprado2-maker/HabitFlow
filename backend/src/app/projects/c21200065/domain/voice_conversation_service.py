@@ -1,9 +1,17 @@
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Literal
 
-VoiceIntent = Literal["registrar_habito", "consultar_habito", "aclaracion", "cancelar", "desconocido"]
+VoiceIntent = Literal[
+    "registrar_habito",
+    "consultar_habito",
+    "plan_recomendacion",
+    "aclaracion",
+    "cancelar",
+    "desconocido",
+]
 VoiceStatus = Literal["completed", "skipped", "failed"]
 
 
@@ -21,6 +29,39 @@ class VoiceEvent:
     status: VoiceStatus
     quantity: float | None = None
     unit: str | None = None
+
+
+@dataclass
+class HabitEventContext:
+    habit_id: str
+    habit_name: str
+    status: str
+    timestamp: int
+
+
+@dataclass
+class AchievementContext:
+    id: str
+    title: str
+    description: str
+    requirement: str
+    unlocked: bool
+    xp: int
+
+
+@dataclass
+class ConversationContext:
+    events: list[HabitEventContext] = field(default_factory=list)
+    achievements: list[AchievementContext] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)
+
+
+@dataclass
+class VoicePlan:
+    title: str
+    summary: str
+    category: str
+    actions: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -67,15 +108,22 @@ class VoiceTurnResult:
     intent: VoiceIntent
     response: str
     events: list[VoiceEvent] = field(default_factory=list)
+    plan: VoicePlan | None = None
     question: str | None = None
     quick_replies: list[str] = field(default_factory=list)
     session: VoiceSession = field(default_factory=VoiceSession)
     clear_session: bool = False
 
 
-def handle_voice_turn(text: str, habits: list[HabitContext], session: VoiceSession | None = None) -> VoiceTurnResult:
+def handle_voice_turn(
+    text: str,
+    habits: list[HabitContext],
+    session: VoiceSession | None = None,
+    context: ConversationContext | None = None,
+) -> VoiceTurnResult:
     clean_text = _normalize(text)
     session = session or VoiceSession()
+    context = context or ConversationContext()
 
     if not clean_text:
         return VoiceTurnResult(intent="desconocido", response="No escuche ningun comando.")
@@ -90,6 +138,40 @@ def handle_voice_turn(text: str, habits: list[HabitContext], session: VoiceSessi
             response=question,
             question=question,
             quick_replies=[habit.name for habit in habits[:4]] + ["Registrar uno nuevo"],
+            session=session,
+        )
+
+    if _is_progress_query(clean_text):
+        return VoiceTurnResult(
+            intent="consultar_habito",
+            response=_progress_summary(habits, context),
+            quick_replies=["Que me falta hoy?", "Dame un plan", "Proximo logro"],
+            session=session,
+        )
+
+    if _is_missing_today_query(clean_text):
+        return VoiceTurnResult(
+            intent="consultar_habito",
+            response=_missing_today_summary(habits, context),
+            quick_replies=["Dame un plan", "Registrar por voz"],
+            session=session,
+        )
+
+    if _is_achievement_query(clean_text):
+        return VoiceTurnResult(
+            intent="consultar_habito",
+            response=_achievement_summary(context),
+            quick_replies=["Dame un plan", "Como voy esta semana?"],
+            session=session,
+        )
+
+    if _is_plan_request(clean_text):
+        plan = _build_plan(clean_text, habits, context)
+        return VoiceTurnResult(
+            intent="plan_recomendacion",
+            response=f"{plan.title}. {plan.summary} " + " ".join(plan.actions),
+            plan=plan,
+            quick_replies=["Crear primer habito", "Ajustar plan", "Como voy esta semana?"],
             session=session,
         )
 
@@ -301,6 +383,153 @@ def _is_social_response(text: str) -> bool:
     if _extract_new_habit_name(text) or _quantity_from_text(text)[0] is not None:
         return False
     return any(phrase in text for phrase in ["estoy bien", "todo bien", "bien", "mas o menos", "mal"])
+
+
+def _is_progress_query(text: str) -> bool:
+    return any(phrase in text for phrase in ["como voy", "progreso", "esta semana", "semana", "avance"])
+
+
+def _is_missing_today_query(text: str) -> bool:
+    return any(phrase in text for phrase in ["que me falta", "faltan hoy", "falta hoy", "pendiente"])
+
+
+def _is_achievement_query(text: str) -> bool:
+    return any(phrase in text for phrase in ["proximo logro", "siguiente logro", "cuanto me falta", "insignia"])
+
+
+def _is_plan_request(text: str) -> bool:
+    return any(
+        phrase in text
+        for phrase in [
+            "dame un plan",
+            "recomiendame",
+            "recomendacion",
+            "quiero mejorar",
+            "quiero ser mas constante",
+            "plan",
+            "meta",
+        ]
+    )
+
+
+def _progress_summary(habits: list[HabitContext], context: ConversationContext) -> str:
+    if not habits:
+        return "Aun no tienes habitos activos. Podemos crear uno pequeno para empezar hoy."
+    week_start = _now_ms() - 7 * 24 * 60 * 60 * 1000
+    week_events = [event for event in context.events if event.timestamp >= week_start and event.status.lower() == "completed"]
+    counts: dict[str, int] = {}
+    for event in week_events:
+        counts[event.habit_name] = counts.get(event.habit_name, 0) + 1
+    if not counts:
+        names = ", ".join(habit.name for habit in habits[:3])
+        return f"Esta semana aun no hay registros completados. Puedes empezar con {names}."
+    top = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:3]
+    detail = ", ".join(f"{name}: {count} registro{'s' if count != 1 else ''}" for name, count in top)
+    missing = _missing_today_names(habits, context)
+    suffix = f" Te falta hoy: {', '.join(missing[:3])}." if missing else " Hoy ya tienes registros activos."
+    return f"Esta semana vas asi: {detail}.{suffix}"
+
+
+def _missing_today_summary(habits: list[HabitContext], context: ConversationContext) -> str:
+    missing = _missing_today_names(habits, context)
+    if not habits:
+        return "No hay habitos activos todavia. Puedo ayudarte a crear el primero."
+    if not missing:
+        return "No veo pendientes por ahora: hoy ya registraste tus habitos activos."
+    return f"Te falta registrar hoy: {', '.join(missing[:4])}."
+
+
+def _achievement_summary(context: ConversationContext) -> str:
+    locked = [achievement for achievement in context.achievements if not achievement.unlocked]
+    if not locked:
+        unlocked = [achievement for achievement in context.achievements if achievement.unlocked]
+        if unlocked:
+            return "Ya desbloqueaste todos los logros cargados localmente. Buen ritmo."
+        return "Aun no tengo logros cargados para calcular el siguiente desbloqueo."
+    next_achievement = sorted(locked, key=lambda item: item.xp)[0]
+    completed = len([event for event in context.events if event.status.lower() == "completed"])
+    return (
+        f"Tu proximo logro es {next_achievement.title}: {next_achievement.requirement}. "
+        f"Llevas {completed} registros completados; sigue con una accion pequena hoy."
+    )
+
+
+def _build_plan(text: str, habits: list[HabitContext], context: ConversationContext) -> VoicePlan:
+    category = _plan_category(text, context)
+    completed_week = len(
+        [
+            event
+            for event in context.events
+            if event.timestamp >= _now_ms() - 7 * 24 * 60 * 60 * 1000 and event.status.lower() == "completed"
+        ]
+    )
+    if not habits:
+        return VoicePlan(
+            title="Plan de arranque",
+            summary=f"Empecemos con una meta de {category.lower()} muy facil de sostener.",
+            category=category,
+            actions=[
+                "Crea un habito de 10 minutos tres veces por semana.",
+                "Registralo por voz apenas termines.",
+                "Revisamos el progreso en 7 dias.",
+            ],
+        )
+    if completed_week <= 2:
+        return VoicePlan(
+            title=f"Plan suave de {category}",
+            summary="Tu historial reciente sugiere bajar friccion antes de subir intensidad.",
+            category=category,
+            actions=[
+                "Elige un solo habito principal esta semana.",
+                "Reduce la meta a 10 o 15 minutos.",
+                "Ponlo en un horario fijo y facil de recordar.",
+            ],
+        )
+    return VoicePlan(
+        title=f"Plan de constancia en {category}",
+        summary="Ya hay movimiento esta semana, asi que conviene consolidar.",
+        category=category,
+        actions=[
+            "Mantén dos habitos activos como prioridad.",
+            "Agrega una revision corta el domingo.",
+            "Si fallas dos dias seguidos, baja la frecuencia en vez de abandonar.",
+        ],
+    )
+
+
+def _plan_category(text: str, context: ConversationContext) -> str:
+    for category in context.categories:
+        normalized = _normalize(category)
+        if normalized and normalized in text:
+            return category
+    if "leer" in text or "estudi" in text:
+        return "Estudio"
+    if "mover" in text or "correr" in text or "ejercicio" in text:
+        return "Salud"
+    if context.categories:
+        return context.categories[0]
+    return "Productividad"
+
+
+def _missing_today_names(habits: list[HabitContext], context: ConversationContext) -> list[str]:
+    day_start = _day_start_ms()
+    completed_today = {
+        event.habit_id
+        for event in context.events
+        if event.timestamp >= day_start and event.status.lower() == "completed"
+    }
+    return [habit.name for habit in habits if habit.id not in completed_today]
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _day_start_ms() -> int:
+    seconds = int(time.time())
+    local = time.localtime(seconds)
+    start = time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, local.tm_wday, local.tm_yday, local.tm_isdst))
+    return int(start * 1000)
 
 
 def _is_affirmative(text: str) -> bool:

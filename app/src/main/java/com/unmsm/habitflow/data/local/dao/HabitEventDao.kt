@@ -18,6 +18,9 @@ interface HabitEventDao {
     @Query("SELECT * FROM habit_events WHERE synced = 0 ORDER BY timestamp")
     suspend fun unsynced(): List<HabitEventEntity>
 
+    @Query("SELECT * FROM habit_events ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun recent(limit: Int): List<HabitEventEntity>
+
     @Query("SELECT COUNT(*) FROM habit_events WHERE status = 'Completed' AND timestamp >= :dayStart")
     fun observeCompletedSince(dayStart: Long): Flow<Int>
 

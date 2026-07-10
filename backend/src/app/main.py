@@ -4,7 +4,14 @@ from sqlalchemy import text
 
 from app.core.discovery import load_projects, registry
 from app.projects.c21200065.infra.db.postgres import engine
-from app.projects.c21200065.infra.orm import AuthRefreshTokenORM, AuthUserORM, FileORM, GeoEventORM
+from app.projects.c21200065.infra.orm import (
+    AuthRefreshTokenORM,
+    AuthUserORM,
+    CosmeticCatalogORM,
+    FileORM,
+    GeoEventORM,
+    UserCosmeticORM,
+)
 from app.projects.c21200065.infra.orm.base import Base
 
 app = FastAPI(title="Platform API", version="1.0.0")

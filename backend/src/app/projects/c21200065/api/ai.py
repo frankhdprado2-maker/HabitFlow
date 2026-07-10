@@ -6,7 +6,10 @@ from pydantic import BaseModel, Field
 
 from app.projects.c21200065.api.deps import get_current_user
 from app.projects.c21200065.domain.voice_conversation_service import (
+    AchievementContext,
+    ConversationContext,
     HabitContext,
+    HabitEventContext,
     VoiceSession,
     handle_voice_turn,
 )
@@ -25,10 +28,29 @@ class VoiceHabitContext(BaseModel):
     category: str = ""
 
 
+class VoiceEventContext(BaseModel):
+    habit_id: str
+    habit_name: str
+    status: str
+    timestamp: int
+
+
+class VoiceAchievementContext(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    requirement: str = ""
+    unlocked: bool = False
+    xp: int = 0
+
+
 class VoiceCommandRequest(BaseModel):
     text: str
     locale: str = "es-PE"
     habits: list[VoiceHabitContext] = Field(default_factory=list)
+    recent_events: list[VoiceEventContext] = Field(default_factory=list)
+    achievements: list[VoiceAchievementContext] = Field(default_factory=list)
+    categories: list[str] = Field(default_factory=list)
     conversation_id: str | None = None
 
 
@@ -40,8 +62,15 @@ class VoiceEventResponse(BaseModel):
     unit: str | None = None
 
 
+class VoicePlanResponse(BaseModel):
+    title: str
+    summary: str
+    category: str
+    actions: list[str] = Field(default_factory=list)
+
+
 class VoiceCommandResponse(BaseModel):
-    intent: Literal["registrar_habito", "consultar_habito", "aclaracion", "cancelar", "desconocido"]
+    intent: Literal["registrar_habito", "consultar_habito", "plan_recomendacion", "aclaracion", "cancelar", "desconocido"]
     response: str
     habit_id: str | None = None
     habit_name: str | None = None
@@ -49,6 +78,7 @@ class VoiceCommandResponse(BaseModel):
     question: str | None = None
     quick_replies: list[str] = Field(default_factory=list)
     events: list[VoiceEventResponse] = Field(default_factory=list)
+    plan: VoicePlanResponse | None = None
     conversation_id: str
 
 
@@ -90,6 +120,29 @@ async def voice_command(
         request.text,
         [HabitContext(id=item.id, name=item.name, category=item.category) for item in request.habits],
         session,
+        ConversationContext(
+            events=[
+                HabitEventContext(
+                    habit_id=item.habit_id,
+                    habit_name=item.habit_name,
+                    status=item.status,
+                    timestamp=item.timestamp,
+                )
+                for item in request.recent_events
+            ],
+            achievements=[
+                AchievementContext(
+                    id=item.id,
+                    title=item.title,
+                    description=item.description,
+                    requirement=item.requirement,
+                    unlocked=item.unlocked,
+                    xp=item.xp,
+                )
+                for item in request.achievements
+            ],
+            categories=request.categories,
+        ),
     )
 
     if result.clear_session:
@@ -108,6 +161,16 @@ async def voice_command(
         for event in result.events
     ]
     first = events[0] if events else None
+    plan = (
+        VoicePlanResponse(
+            title=result.plan.title,
+            summary=result.plan.summary,
+            category=result.plan.category,
+            actions=result.plan.actions,
+        )
+        if result.plan
+        else None
+    )
     return VoiceCommandResponse(
         intent=result.intent,
         response=result.response,
@@ -117,6 +180,7 @@ async def voice_command(
         question=result.question,
         quick_replies=result.quick_replies,
         events=events,
+        plan=plan,
         conversation_id=conversation_id,
     )
 
