@@ -5,6 +5,7 @@ import com.unmsm.habitflow.data.local.HabitFlowDatabase
 import com.unmsm.habitflow.data.remote.api.AuthApi
 import com.unmsm.habitflow.data.remote.dto.GoogleLoginRequest
 import com.unmsm.habitflow.data.remote.dto.LoginRequest
+import com.unmsm.habitflow.data.remote.dto.ProfileUpdateRequest
 import com.unmsm.habitflow.data.remote.dto.RegisterRequest
 import com.unmsm.habitflow.data.toDomain
 import com.unmsm.habitflow.domain.model.User
@@ -25,33 +26,52 @@ class AuthRepository @Inject constructor(
     suspend fun login(email: String, password: String): AppResult<Unit> =
         runNetwork {
             val cleanEmail = email.trim()
-            clearLocalData()
             val tokens = authApi.login(LoginRequest(cleanEmail, password))
             tokenManager.save(tokens.accessToken, tokens.refreshToken)
+            clearLocalData()
         }
 
     suspend fun register(name: String, email: String, password: String, username: String, goal: String): AppResult<Unit> =
         runNetwork {
             val cleanEmail = email.trim()
-            clearLocalData()
-            val register = authApi.register(RegisterRequest(cleanEmail, password))
+            val register = authApi.register(
+                RegisterRequest(
+                    email = cleanEmail,
+                    password = password,
+                    name = name.trim(),
+                    username = username.trim().ifBlank { null },
+                    goal = goal.trim().ifBlank { null }
+                )
+            )
             if (!register.accessToken.isNullOrBlank() && !register.refreshToken.isNullOrBlank()) {
                 tokenManager.save(register.accessToken, register.refreshToken)
             } else {
                 val tokens = authApi.login(LoginRequest(cleanEmail, password))
                 tokenManager.save(tokens.accessToken, tokens.refreshToken)
             }
+            clearLocalData()
         }
 
     suspend fun googleLogin(idToken: String): AppResult<Unit> =
         runNetwork {
-            clearLocalData()
             val tokens = authApi.loginGoogle(GoogleLoginRequest(idToken))
             tokenManager.save(tokens.accessToken, tokens.refreshToken)
+            clearLocalData()
         }
 
     suspend fun me(): AppResult<User> =
         runNetwork { authApi.me().toDomain() }
+
+    suspend fun updateProfile(name: String, username: String, goal: String): AppResult<User> =
+        runNetwork {
+            authApi.updateMe(
+                ProfileUpdateRequest(
+                    name = name.trim(),
+                    username = username.trim().ifBlank { null },
+                    goal = goal.trim().ifBlank { null }
+                )
+            ).toDomain()
+        }
 
     fun isLoggedIn(): Boolean = !tokenManager.accessToken().isNullOrBlank()
 

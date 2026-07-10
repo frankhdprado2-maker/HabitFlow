@@ -3,13 +3,19 @@ from types import SimpleNamespace
 from typing import Any, Optional
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.projects.c21200065.infra.db.postgres import async_session
 from app.projects.c21200065.infra.orm.auth import AuthRefreshTokenORM, AuthUserORM
 
 
 class UserORMRepository:
+    async def find_by_id(self, user_id: str) -> Optional[dict[str, Any]]:
+        async with async_session() as session:
+            result = await session.execute(select(AuthUserORM).where(AuthUserORM.id == user_id))
+            user = result.scalar_one_or_none()
+            return _user_to_dict(user)
+
     async def find_by_email(self, email: str) -> Optional[dict[str, Any]]:
         async with async_session() as session:
             result = await session.execute(select(AuthUserORM).where(AuthUserORM.email == email))
@@ -30,11 +36,24 @@ class UserORMRepository:
             password=user.get("password"),
             google_id=user.get("google_id"),
             auth_provider=user["auth_provider"],
+            name=user.get("name"),
+            username=user.get("username"),
+            goal=user.get("goal"),
+            timezone=user.get("timezone"),
+            avatar_url=user.get("avatar_url"),
         )
         async with async_session() as session:
             session.add(record)
             await session.commit()
         return SimpleNamespace(inserted_id=user_id)
+
+    async def update_user(self, user_id: str, values: dict[str, Any]) -> Optional[dict[str, Any]]:
+        clean_values = {key: value for key, value in values.items() if value is not None}
+        if clean_values:
+            async with async_session() as session:
+                await session.execute(update(AuthUserORM).where(AuthUserORM.id == user_id).values(**clean_values))
+                await session.commit()
+        return await self.find_by_id(user_id)
 
 
 class RefreshTokenORMRepository:
@@ -86,4 +105,9 @@ def _user_to_dict(user: AuthUserORM | None) -> Optional[dict[str, Any]]:
         "password": user.password,
         "google_id": user.google_id,
         "auth_provider": user.auth_provider,
+        "name": user.name,
+        "username": user.username,
+        "goal": user.goal,
+        "timezone": user.timezone,
+        "avatar_url": user.avatar_url,
     }

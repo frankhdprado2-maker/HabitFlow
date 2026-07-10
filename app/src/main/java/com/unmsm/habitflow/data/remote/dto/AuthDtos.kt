@@ -12,7 +12,10 @@ data class LoginRequest(
 @JsonClass(generateAdapter = true)
 data class RegisterRequest(
     val email: String,
-    val password: String
+    val password: String,
+    val name: String? = null,
+    val username: String? = null,
+    val goal: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -41,6 +44,14 @@ data class TokenResponse(
 )
 
 @JsonClass(generateAdapter = true)
+data class ProfileUpdateRequest(
+    val name: String,
+    val username: String? = null,
+    val goal: String? = null,
+    val timezone: String? = "America/Lima"
+)
+
+@JsonClass(generateAdapter = true)
 data class UserDto(
     val id: String = "",
     val name: String = "",
@@ -49,5 +60,6 @@ data class UserDto(
     val bio: String? = null,
     val goal: String? = null,
     val timezone: String? = null,
-    @Json(name = "avatar_url") val avatarUrl: String? = null
+    @Json(name = "avatar_url") val avatarUrl: String? = null,
+    @Json(name = "profile_complete") val profileComplete: Boolean = false
 )

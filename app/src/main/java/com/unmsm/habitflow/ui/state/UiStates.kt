@@ -12,7 +12,8 @@ data class LoginUiState(
     val password: String = "",
     val loading: Boolean = false,
     val error: String? = null,
-    val loggedIn: Boolean = false
+    val loggedIn: Boolean = false,
+    val needsProfile: Boolean = false
 )
 
 data class RegisterUiState(
@@ -63,7 +64,17 @@ data class ProfileUiState(
 )
 
 data class SettingsUiState(
-    val settings: SettingsState = SettingsState()
+    val settings: SettingsState = SettingsState(),
+    val loggingOut: Boolean = false
+)
+
+data class ProfileSetupUiState(
+    val name: String = "",
+    val username: String = "",
+    val goal: String = "",
+    val loading: Boolean = false,
+    val saved: Boolean = false,
+    val error: String? = null
 )
 
 data class NotificationsUiState(

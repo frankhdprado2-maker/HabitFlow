@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.unmsm.habitflow.data.repository.AuthRepository
 import com.unmsm.habitflow.ui.state.LoginUiState
+import com.unmsm.habitflow.ui.state.ProfileSetupUiState
 import com.unmsm.habitflow.ui.state.RegisterUiState
 import com.unmsm.habitflow.util.AppResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -14,15 +15,22 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
+class SessionViewModel @Inject constructor(
+    private val authRepository: AuthRepository
+) : ViewModel() {
+    fun isLoggedIn(): Boolean = authRepository.isLoggedIn()
+}
+
+@HiltViewModel
 class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(LoginUiState(loggedIn = authRepository.isLoggedIn()))
     val state: StateFlow<LoginUiState> = _state
 
-    fun updateEmail(value: String) = _state.update { it.copy(email = value, error = null) }
-    fun updatePassword(value: String) = _state.update { it.copy(password = value, error = null) }
-    fun showError(message: String) = _state.update { it.copy(loading = false, error = message) }
+    fun updateEmail(value: String) = _state.update { it.copy(email = value, error = null, needsProfile = false) }
+    fun updatePassword(value: String) = _state.update { it.copy(password = value, error = null, needsProfile = false) }
+    fun showError(message: String) = _state.update { it.copy(loading = false, error = message, needsProfile = false) }
 
     fun login() {
         val current = state.value
@@ -31,9 +39,9 @@ class LoginViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
+            _state.update { it.copy(loading = true, error = null, needsProfile = false) }
             when (authRepository.login(state.value.email, state.value.password)) {
-                is AppResult.Success -> _state.update { it.copy(loading = false, loggedIn = true) }
+                is AppResult.Success -> finishLogin()
                 is AppResult.Error -> _state.update { it.copy(loading = false, error = "Credenciales invalidas o servidor no disponible.") }
             }
         }
@@ -41,11 +49,27 @@ class LoginViewModel @Inject constructor(
 
     fun googleLogin(idToken: String) {
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
+            _state.update { it.copy(loading = true, error = null, needsProfile = false) }
             when (val result = authRepository.googleLogin(idToken)) {
-                is AppResult.Success -> _state.update { it.copy(loading = false, loggedIn = true, error = null) }
+                is AppResult.Success -> finishLogin()
                 is AppResult.Error -> _state.update { it.copy(loading = false, error = result.message) }
             }
+        }
+    }
+
+    private suspend fun finishLogin() {
+        when (val profile = authRepository.me()) {
+            is AppResult.Success -> {
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        loggedIn = profile.data.profileComplete,
+                        needsProfile = !profile.data.profileComplete,
+                        error = null
+                    )
+                }
+            }
+            is AppResult.Error -> _state.update { it.copy(loading = false, loggedIn = true, error = null) }
         }
     }
 }
@@ -110,6 +134,51 @@ class RegisterViewModel @Inject constructor(
             state.password.length < 6 -> "La contrasena debe tener al menos 6 caracteres."
             else -> null
         }
+}
+
+@HiltViewModel
+class ProfileSetupViewModel @Inject constructor(
+    private val authRepository: AuthRepository
+) : ViewModel() {
+    private val _state = MutableStateFlow(ProfileSetupUiState())
+    val state: StateFlow<ProfileSetupUiState> = _state
+
+    init {
+        viewModelScope.launch {
+            when (val result = authRepository.me()) {
+                is AppResult.Success -> {
+                    val user = result.data
+                    _state.update {
+                        it.copy(
+                            name = if (user.profileComplete) user.name else "",
+                            username = user.username,
+                            goal = user.goal
+                        )
+                    }
+                }
+                is AppResult.Error -> Unit
+            }
+        }
+    }
+
+    fun updateName(value: String) = _state.update { it.copy(name = value, error = null) }
+    fun updateUsername(value: String) = _state.update { it.copy(username = value, error = null) }
+    fun updateGoal(value: String) = _state.update { it.copy(goal = value, error = null) }
+
+    fun save() {
+        val current = state.value
+        if (current.name.trim().length < 2) {
+            _state.update { it.copy(error = "Escribe tu nombre para guardar tu perfil.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(loading = true, error = null) }
+            when (val result = authRepository.updateProfile(current.name, current.username, current.goal)) {
+                is AppResult.Success -> _state.update { it.copy(loading = false, saved = true) }
+                is AppResult.Error -> _state.update { it.copy(loading = false, error = result.message) }
+            }
+        }
+    }
 }
 
 private fun isEmailValid(value: String): Boolean =

@@ -34,13 +34,16 @@ import javax.inject.Inject
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
+    private val authRepository: AuthRepository,
     private val habitRepository: HabitRepository,
     private val voiceRepository: VoiceRepository,
     private val voiceController: VoiceController
 ) : ViewModel() {
     private val _voice = MutableStateFlow("" to "")
-    val state: StateFlow<HomeUiState> = combine(habitRepository.observeHabits(), _voice) { habits, voice ->
+    private val _userName = MutableStateFlow("Estudiante")
+    val state: StateFlow<HomeUiState> = combine(habitRepository.observeHabits(), _voice, _userName) { habits, voice, userName ->
         HomeUiState(
+            userName = userName,
             habits = habits,
             completedToday = habits.count { it.streak > 0 }.coerceAtMost(habits.size),
             streak = habits.maxOfOrNull { it.streak } ?: 0,
@@ -49,6 +52,15 @@ class HomeViewModel @Inject constructor(
             loading = false
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
+
+    init {
+        viewModelScope.launch {
+            when (val result = authRepository.me()) {
+                is AppResult.Success -> _userName.value = result.data.name.ifBlank { result.data.username }
+                is AppResult.Error -> Unit
+            }
+        }
+    }
 
     fun mark(habit: Habit, status: HabitStatus = HabitStatus.Completed) {
         viewModelScope.launch { habitRepository.markHabit(habit, status) }
@@ -156,15 +168,22 @@ class SettingsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val settingsRepository: SettingsRepository
 ) : ViewModel() {
-    val state: StateFlow<SettingsUiState> = settingsRepository.settings
-        .map { SettingsUiState(it) }
+    private val loggingOut = MutableStateFlow(false)
+    val state: StateFlow<SettingsUiState> = combine(settingsRepository.settings, loggingOut) { settings, isLoggingOut ->
+        SettingsUiState(settings, isLoggingOut)
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     fun toggleDarkMode(value: Boolean) = viewModelScope.launch { settingsRepository.setDarkMode(value) }
     fun toggleNotifications(value: Boolean) = viewModelScope.launch { settingsRepository.setNotifications(value) }
     fun toggleBiometric(value: Boolean) = viewModelScope.launch { settingsRepository.setBiometric(value) }
     fun togglePublicProfile(value: Boolean) = viewModelScope.launch { settingsRepository.setPublicProfile(value) }
-    fun logout() = viewModelScope.launch { authRepository.logout() }
+    fun logout(onComplete: () -> Unit) = viewModelScope.launch {
+        loggingOut.value = true
+        authRepository.logout()
+        loggingOut.value = false
+        onComplete()
+    }
 }
 
 @HiltViewModel

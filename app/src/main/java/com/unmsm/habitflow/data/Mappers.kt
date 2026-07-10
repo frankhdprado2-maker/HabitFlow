@@ -25,7 +25,8 @@ fun UserDto.toDomain() = User(
     bio = bio.orEmpty(),
     goal = goal.orEmpty(),
     timezone = timezone ?: "America/Lima",
-    avatarUrl = avatarUrl
+    avatarUrl = avatarUrl,
+    profileComplete = profileComplete
 )
 
 fun HabitEntity.toDomain() = Habit(id, name, icon, frequency, reminderTime, category, isActive, streak, bestStreak)

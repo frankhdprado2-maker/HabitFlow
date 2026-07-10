@@ -1,5 +1,6 @@
 package com.unmsm.habitflow.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -28,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,13 +48,52 @@ fun SectionTitle(title: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
+fun ClayCard(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
+    content: @Composable () -> Unit
+) {
+    val shape = RoundedCornerShape(26.dp)
+    val cardModifier = modifier
+        .shadow(
+            elevation = 16.dp,
+            shape = shape,
+            clip = false,
+            ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+            spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+        )
+    val colors = CardDefaults.cardColors(containerColor = containerColor)
+    val border = BorderStroke(1.dp, Color.White.copy(alpha = 0.72f))
+    val elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 2.dp)
+
+    if (onClick == null) {
+        Card(
+            modifier = cardModifier,
+            colors = colors,
+            shape = shape,
+            border = border,
+            elevation = elevation
+        ) { content() }
+    } else {
+        Card(
+            onClick = onClick,
+            modifier = cardModifier,
+            colors = colors,
+            shape = shape,
+            border = border,
+            elevation = elevation
+        ) { content() }
+    }
+}
+
+@Composable
 fun MetricTile(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(
+    ClayCard(
         modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(8.dp)
+        containerColor = MaterialTheme.colorScheme.surface
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(16.dp)) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         }
@@ -60,25 +102,23 @@ fun MetricTile(label: String, value: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun HabitRow(habit: Habit, completed: Boolean = false, onMark: () -> Unit, onOpen: () -> Unit) {
-    Card(
+    ClayCard(
         onClick = onOpen,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                Text(habit.icon.take(2), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Text(habit.icon.take(2), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Column(Modifier.weight(1f)) {
                 Text(habit.name, fontWeight = FontWeight.SemiBold)
@@ -103,7 +143,7 @@ fun StatusBadge(status: HabitStatus) {
         HabitStatus.Failed -> MaterialTheme.colorScheme.error
         HabitStatus.Pending -> MaterialTheme.colorScheme.outline
     }
-    Surface(color = color.copy(alpha = 0.18f), shape = RoundedCornerShape(8.dp)) {
+    Surface(color = color.copy(alpha = 0.18f), shape = RoundedCornerShape(18.dp)) {
         Text(status.name, color = color, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
     }
 }
@@ -115,7 +155,7 @@ fun ProgressBar(label: String, value: Float) {
             Text(label, style = MaterialTheme.typography.bodyMedium)
             Text("${(value * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
         }
-        LinearProgressIndicator(progress = { value.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(8.dp)))
+        LinearProgressIndicator(progress = { value.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(10.dp)))
     }
 }
 
@@ -126,13 +166,20 @@ fun FormField(value: String, label: String, onChange: (String) -> Unit, modifier
         onValueChange = onChange,
         label = { Text(label) },
         singleLine = true,
+        shape = RoundedCornerShape(22.dp),
         modifier = modifier.fillMaxWidth()
     )
 }
 
 @Composable
 fun PrimaryAction(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Button(onClick = onClick, modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth().height(54.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp, pressedElevation = 2.dp)
+    ) {
         Text(label)
     }
 }

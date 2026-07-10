@@ -29,17 +29,19 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.unmsm.habitflow.BuildConfig
+import com.unmsm.habitflow.ui.components.ClayCard
 import com.unmsm.habitflow.ui.components.FormField
 import com.unmsm.habitflow.ui.components.PrimaryAction
 import com.unmsm.habitflow.ui.components.VerticalSpacer
 import com.unmsm.habitflow.ui.viewmodel.LoginViewModel
+import com.unmsm.habitflow.ui.viewmodel.ProfileSetupViewModel
 import com.unmsm.habitflow.ui.viewmodel.RegisterViewModel
 import kotlinx.coroutines.delay
 
 @Composable
 fun SplashScreen(padding: PaddingValues, onDone: () -> Unit) {
     LaunchedEffect(Unit) {
-        delay(900)
+        delay(350)
         onDone()
     }
     Column(
@@ -77,6 +79,7 @@ fun OnboardingScreen(padding: PaddingValues, onFinish: () -> Unit) {
 fun LoginScreen(
     padding: PaddingValues,
     onLogin: () -> Unit,
+    onProfileSetup: () -> Unit,
     onRegister: () -> Unit,
     onRecover: () -> Unit,
     viewModel: LoginViewModel = hiltViewModel()
@@ -99,53 +102,92 @@ fun LoginScreen(
             viewModel.showError("No se pudo iniciar sesion con Google (${error.javaClass.simpleName}).")
         }
     }
-    LaunchedEffect(state.loggedIn) {
+    LaunchedEffect(state.loggedIn, state.needsProfile) {
+        if (state.needsProfile) onProfileSetup()
         if (state.loggedIn) onLogin()
     }
     Column(
         modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Bienvenido", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Text("Inicia sesion para continuar tu racha.")
-        VerticalSpacer()
-        FormField(state.email, "Email", viewModel::updateEmail)
-        VerticalSpacer()
-        OutlinedTextField(
-            value = state.password,
-            onValueChange = viewModel::updatePassword,
-            label = { Text("Contrasena") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (state.error != null) {
-            Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-        }
-        VerticalSpacer()
-        PrimaryAction(if (state.loading) "Entrando..." else "Iniciar sesion", viewModel::login)
-        Button(
-            onClick = {
-                val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
-                if (webClientId.isBlank()) {
-                    viewModel.showError("Falta configurar GOOGLE_WEB_CLIENT_ID en local.properties.")
-                    return@Button
+        ClayCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(22.dp)) {
+                Text("Bienvenido", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                Text("Inicia sesion para continuar tu racha.")
+                VerticalSpacer()
+                FormField(state.email, "Email", viewModel::updateEmail)
+                VerticalSpacer()
+                OutlinedTextField(
+                    value = state.password,
+                    onValueChange = viewModel::updatePassword,
+                    label = { Text("Contrasena") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (state.error != null) {
+                    Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
                 }
-                val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                    .requestEmail()
-                    .requestIdToken(webClientId)
-                    .build()
-                val client = GoogleSignIn.getClient(context, options)
-                client.signOut().addOnCompleteListener {
-                    googleLauncher.launch(client.signInIntent)
+                VerticalSpacer()
+                PrimaryAction(if (state.loading) "Entrando..." else "Iniciar sesion", viewModel::login)
+                Button(
+                    onClick = {
+                        val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
+                        if (webClientId.isBlank()) {
+                            viewModel.showError("Falta configurar GOOGLE_WEB_CLIENT_ID en local.properties.")
+                            return@Button
+                        }
+                        val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                            .requestEmail()
+                            .requestIdToken(webClientId)
+                            .build()
+                        val client = GoogleSignIn.getClient(context, options)
+                        client.signOut().addOnCompleteListener {
+                            googleLauncher.launch(client.signInIntent)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                ) {
+                    Text("Continuar con Google")
                 }
-            },
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-        ) {
-            Text("Continuar con Google")
+                TextButton(onClick = onRecover) { Text("Recuperar contrasena") }
+                TextButton(onClick = onRegister) { Text("Crear cuenta") }
+            }
         }
-        TextButton(onClick = onRecover) { Text("Recuperar contrasena") }
-        TextButton(onClick = onRegister) { Text("Crear cuenta") }
+    }
+}
+
+@Composable
+fun ProfileSetupScreen(
+    padding: PaddingValues,
+    onDone: () -> Unit,
+    viewModel: ProfileSetupViewModel = hiltViewModel()
+) {
+    val state by viewModel.state.collectAsState()
+    LaunchedEffect(state.saved) {
+        if (state.saved) onDone()
+    }
+    Column(
+        modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        ClayCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(22.dp)) {
+                Text("Como te llamas?", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text("Guardaremos tu perfil para personalizar HabitFlow.")
+                VerticalSpacer()
+                FormField(state.name, "Nombre", viewModel::updateName)
+                VerticalSpacer()
+                FormField(state.username, "Username", viewModel::updateUsername)
+                VerticalSpacer()
+                FormField(state.goal, "Objetivo principal", viewModel::updateGoal)
+                if (state.error != null) {
+                    Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+                }
+                VerticalSpacer()
+                PrimaryAction(if (state.loading) "Guardando..." else "Guardar perfil", viewModel::save)
+            }
+        }
     }
 }
 
@@ -163,42 +205,46 @@ fun RegisterScreen(
         modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Registro - paso ${state.step}/3", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        when (state.step) {
-            1 -> {
-                FormField(state.name, "Nombre completo", viewModel::updateName)
+        ClayCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(22.dp)) {
+                Text("Registro - paso ${state.step}/3", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                when (state.step) {
+                    1 -> {
+                        FormField(state.name, "Nombre completo", viewModel::updateName)
+                        VerticalSpacer()
+                        FormField(state.username, "Username", viewModel::updateUsername)
+                    }
+                    2 -> {
+                        FormField(state.email, "Email", viewModel::updateEmail)
+                        VerticalSpacer()
+                        OutlinedTextField(
+                            value = state.password,
+                            onValueChange = viewModel::updatePassword,
+                            label = { Text("Contrasena") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    else -> {
+                        Text("Cuenta: ${state.email}", style = MaterialTheme.typography.bodyMedium)
+                        VerticalSpacer()
+                        FormField(state.goal, "Objetivo principal", viewModel::updateGoal)
+                    }
+                }
+                if (state.error != null) {
+                    Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+                }
                 VerticalSpacer()
-                FormField(state.username, "Username", viewModel::updateUsername)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(onClick = viewModel::previousStep, enabled = state.step > 1, modifier = Modifier.weight(1f)) { Text("Atras") }
+                    Button(
+                        onClick = { if (state.step < 3) viewModel.nextStep() else viewModel.register() },
+                        enabled = !state.loading,
+                        modifier = Modifier.weight(1f)
+                    ) { Text(if (state.loading) "Creando..." else if (state.step < 3) "Siguiente" else "Crear") }
+                }
             }
-            2 -> {
-                FormField(state.email, "Email", viewModel::updateEmail)
-                VerticalSpacer()
-                OutlinedTextField(
-                    value = state.password,
-                    onValueChange = viewModel::updatePassword,
-                    label = { Text("Contrasena") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            else -> {
-                Text("Cuenta: ${state.email}", style = MaterialTheme.typography.bodyMedium)
-                VerticalSpacer()
-                FormField(state.goal, "Objetivo principal", viewModel::updateGoal)
-            }
-        }
-        if (state.error != null) {
-            Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-        }
-        VerticalSpacer()
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(onClick = viewModel::previousStep, enabled = state.step > 1, modifier = Modifier.weight(1f)) { Text("Atras") }
-            Button(
-                onClick = { if (state.step < 3) viewModel.nextStep() else viewModel.register() },
-                enabled = !state.loading,
-                modifier = Modifier.weight(1f)
-            ) { Text(if (state.loading) "Creando..." else if (state.step < 3) "Siguiente" else "Crear") }
         }
     }
 }

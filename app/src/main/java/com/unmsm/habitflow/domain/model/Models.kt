@@ -10,7 +10,8 @@ data class User(
     val timezone: String = "America/Lima",
     val level: Int = 0,
     val xp: Int = 0,
-    val avatarUrl: String? = null
+    val avatarUrl: String? = null,
+    val profileComplete: Boolean = false
 )
 
 data class Habit(

@@ -20,6 +20,7 @@ class TokenAuthenticator @Inject constructor(
     private val moshi: Moshi
 ) : Authenticator {
     override fun authenticate(route: Route?, response: Response): Request? {
+        if (response.request.url.encodedPath.contains("/auth/")) return null
         val refreshToken = tokenManager.refreshToken() ?: return null
         if (responseCount(response) >= 2) return null
 

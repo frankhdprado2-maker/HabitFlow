@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from sqlalchemy import text
 
 from app.core.discovery import load_projects, registry
 from app.projects.c21200065.infra.db.postgres import engine
@@ -16,6 +17,18 @@ load_projects(app)
 async def create_database_tables():
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        await _ensure_auth_profile_columns(connection)
+
+
+async def _ensure_auth_profile_columns(connection):
+    for statement in (
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS name TEXT",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS username TEXT",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS goal TEXT",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS timezone TEXT",
+        "ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS avatar_url TEXT",
+    ):
+        await connection.execute(text(statement))
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

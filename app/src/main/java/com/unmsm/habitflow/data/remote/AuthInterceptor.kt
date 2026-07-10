@@ -11,7 +11,7 @@ class AuthInterceptor @Inject constructor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val token = tokenManager.accessToken()
         val original = chain.request()
-        val request = if (token.isNullOrBlank() || original.url.encodedPath.contains("auth/login") || original.url.encodedPath.contains("auth/register")) {
+        val request = if (token.isNullOrBlank() || original.isAuthHandshake()) {
             original
         } else {
             original.newBuilder()
@@ -19,5 +19,13 @@ class AuthInterceptor @Inject constructor(
                 .build()
         }
         return chain.proceed(request)
+    }
+
+    private fun okhttp3.Request.isAuthHandshake(): Boolean {
+        val path = url.encodedPath
+        return path.contains("auth/login") ||
+            path.contains("auth/register") ||
+            path.contains("auth/google") ||
+            path.contains("auth/refresh-token")
     }
 }

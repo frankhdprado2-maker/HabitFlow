@@ -11,6 +11,12 @@ class LoginRequest(BaseModel):
     device_id: Optional[str] = None
 
 
+class RegisterRequest(LoginRequest):
+    name: Optional[str] = None
+    username: Optional[str] = None
+    goal: Optional[str] = None
+
+
 class GoogleLoginRequest(BaseModel):
     token: str
     device_id: Optional[str] = None
@@ -29,6 +35,25 @@ class RefreshTokenRequest(BaseModel):
 
 class RegisterResponse(BaseModel):
     user_id: str
+
+
+class ProfileUpdateRequest(BaseModel):
+    name: str
+    username: Optional[str] = None
+    goal: Optional[str] = None
+    timezone: Optional[str] = None
+
+
+class UserProfileResponse(BaseModel):
+    id: str
+    name: str = ""
+    username: Optional[str] = None
+    email: EmailStr
+    bio: str = ""
+    goal: str = ""
+    timezone: str = "America/Lima"
+    avatar_url: Optional[str] = None
+    profile_complete: bool = False
 
 
 # â”€â”€ Storage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

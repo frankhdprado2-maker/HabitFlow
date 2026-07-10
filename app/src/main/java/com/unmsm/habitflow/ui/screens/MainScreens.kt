@@ -21,8 +21,6 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -42,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.unmsm.habitflow.domain.model.HabitStatus
+import com.unmsm.habitflow.ui.components.ClayCard
 import com.unmsm.habitflow.ui.components.HabitRow
 import com.unmsm.habitflow.ui.components.MetricTile
 import com.unmsm.habitflow.ui.components.PrimaryAction
@@ -91,7 +90,7 @@ fun HomeScreen(
             VerticalSpacer()
             LinearProgressIndicator(
                 progress = { if (state.habits.isEmpty()) 0f else state.completedToday.toFloat() / state.habits.size },
-                modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(8.dp))
+                modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(10.dp))
             )
         }
         item {
@@ -102,7 +101,7 @@ fun HomeScreen(
         }
         if (state.voiceResponse.isNotBlank()) {
             item {
-                Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                ClayCard(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
                     Column(Modifier.padding(14.dp)) {
                         Text(state.voiceText, fontWeight = FontWeight.SemiBold)
                         Text(state.voiceResponse)
@@ -190,7 +189,7 @@ fun StatsScreen(padding: PaddingValues, viewModel: StatsViewModel = hiltViewMode
             SectionTitle("Semana")
             Row(Modifier.fillMaxWidth().height(140.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
                 state.weekly.forEach { value ->
-                    Box(Modifier.weight(1f).fillMaxHeight(value / 5f).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primary))
+                    Box(Modifier.weight(1f).fillMaxHeight(value / 5f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary))
                 }
             }
         }
@@ -212,7 +211,7 @@ fun HistoryScreen(padding: PaddingValues, viewModel: HistoryViewModel = hiltView
             }
         }
         items(state.events) { event ->
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+            ClayCard(Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(event.habitName, fontWeight = FontWeight.SemiBold)
@@ -231,7 +230,7 @@ fun NotificationsScreen(padding: PaddingValues, viewModel: NotificationsViewMode
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Notificaciones", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         items(state.notifications) { item ->
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+            ClayCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text(item.title, fontWeight = FontWeight.SemiBold)
                     Text(item.message)
@@ -293,7 +292,10 @@ fun SettingsScreen(
         SettingSwitch("Perfil público", state.settings.publicProfile, viewModel::togglePublicProfile)
         Text("Idioma: ${state.settings.language}")
         Button(onClick = {}) { Text("Cambiar contraseña") }
-        Button(onClick = { viewModel.logout(); onLogout() }) { Text("Cerrar sesion") }
+        Button(
+            onClick = { viewModel.logout(onLogout) },
+            enabled = !state.loggingOut
+        ) { Text(if (state.loggingOut) "Cerrando..." else "Cerrar sesion") }
         TextButton(onClick = onDelete) { Text("Eliminar cuenta", color = MaterialTheme.colorScheme.error) }
     }
 }
@@ -305,10 +307,10 @@ fun AchievementsScreen(padding: PaddingValues, viewModel: AchievementsViewModel 
         item {
             Text("Logros", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Nivel ${state.level} · ${state.xp} XP")
-            LinearProgressIndicator(progress = { state.xp / 1000f }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(8.dp)))
+            LinearProgressIndicator(progress = { state.xp / 1000f }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(10.dp)))
         }
         items(state.achievements) { achievement ->
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+            ClayCard(Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
                         Text(achievement.title, fontWeight = FontWeight.SemiBold)
@@ -354,7 +356,7 @@ fun VoiceScreen(
             Text("Toca el microfono y di una frase corta.")
         }
         item {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            ClayCard(Modifier.fillMaxWidth(), containerColor = MaterialTheme.colorScheme.surfaceVariant) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Ejemplos", fontWeight = FontWeight.SemiBold)
                     Text("Ya corri 30 minutos")
@@ -365,7 +367,7 @@ fun VoiceScreen(
             }
         }
         item {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+            ClayCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Como funciona", fontWeight = FontWeight.SemiBold)
                     Text("La app convierte tu voz en texto, envia la frase al backend y registra el habito localmente si entiende una accion.")
@@ -375,7 +377,7 @@ fun VoiceScreen(
         }
         if (state.transcript.isNotBlank() || state.response.isNotBlank() || state.error != null) {
             item {
-                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                ClayCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (state.transcript.isNotBlank()) Text(state.transcript, fontWeight = FontWeight.SemiBold)
                         if (state.response.isNotBlank()) Text(state.response, color = MaterialTheme.colorScheme.tertiary)

@@ -1,7 +1,15 @@
-﻿from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.projects.c21200065.api.deps import get_auth_service, get_current_user
-from app.projects.c21200065.api.schemas import GoogleLoginRequest, LoginRequest, RefreshTokenRequest, TokenResponse
+from app.projects.c21200065.api.schemas import (
+    GoogleLoginRequest,
+    LoginRequest,
+    ProfileUpdateRequest,
+    RefreshTokenRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserProfileResponse,
+)
 from app.projects.c21200065.domain.auth_service import AuthService
 from app.projects.c21200065.domain.exceptions import (
     InvalidCredentialsError,
@@ -25,9 +33,15 @@ async def login(payload: LoginRequest, service: AuthService = Depends(get_auth_s
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(payload: LoginRequest, service: AuthService = Depends(get_auth_service)):
+async def register(payload: RegisterRequest, service: AuthService = Depends(get_auth_service)):
     try:
-        user_id = await service.register(payload.email, payload.password)
+        user_id = await service.register(
+            payload.email,
+            payload.password,
+            payload.name,
+            payload.username,
+            payload.goal,
+        )
         refresh_token = await service.create_refresh_token(user_id, payload.email, payload.device_id)
         return TokenResponse(access_token=create_token(user_id, payload.email), refresh_token=refresh_token)
     except UserAlreadyExistsError:
@@ -37,9 +51,9 @@ async def register(payload: LoginRequest, service: AuthService = Depends(get_aut
 @router.post("/google", response_model=TokenResponse)
 async def google_login(payload: GoogleLoginRequest, service: AuthService = Depends(get_auth_service)):
     try:
-        google_id, email = await service.google_login(payload.token)
-        refresh_token = await service.create_refresh_token(google_id, email, payload.device_id)
-        return TokenResponse(access_token=create_token(google_id, email), refresh_token=refresh_token)
+        user_id, email = await service.google_login(payload.token)
+        refresh_token = await service.create_refresh_token(user_id, email, payload.device_id)
+        return TokenResponse(access_token=create_token(user_id, email), refresh_token=refresh_token)
     except InvalidGoogleTokenError:
         raise HTTPException(status_code=401, detail="Invalid Google token") from None
 
@@ -53,16 +67,24 @@ async def refresh_token(payload: RefreshTokenRequest, service: AuthService = Dep
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token") from None
 
 
-@router.get("/me")
-async def me(user=Depends(get_current_user)):
-    email = user["email"]
-    return {
-        "id": user["user_id"],
-        "name": email.split("@", 1)[0],
-        "username": email.split("@", 1)[0],
-        "email": email,
-        "bio": "",
-        "goal": "",
-        "timezone": "America/Lima",
-        "avatar_url": None,
-    }
+@router.get("/me", response_model=UserProfileResponse)
+async def me(user=Depends(get_current_user), service: AuthService = Depends(get_auth_service)):
+    return await service.get_profile(user["user_id"], user["email"])
+
+
+@router.put("/me", response_model=UserProfileResponse)
+async def update_me(
+    payload: ProfileUpdateRequest,
+    user=Depends(get_current_user),
+    service: AuthService = Depends(get_auth_service),
+):
+    try:
+        return await service.update_profile(
+            user["user_id"],
+            payload.name,
+            payload.username,
+            payload.goal,
+            payload.timezone,
+        )
+    except InvalidCredentialsError:
+        raise HTTPException(status_code=401, detail="Invalid token") from None

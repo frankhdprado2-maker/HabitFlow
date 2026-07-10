@@ -48,8 +48,9 @@ object AppModule {
             .addInterceptor(authInterceptor)
             .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
             .authenticator(tokenAuthenticator)
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(45, TimeUnit.SECONDS)
+            .readTimeout(75, TimeUnit.SECONDS)
+            .callTimeout(90, TimeUnit.SECONDS)
             .build()
 
     @Provides

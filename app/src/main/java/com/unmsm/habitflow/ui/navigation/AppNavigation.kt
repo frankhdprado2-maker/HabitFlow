@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -14,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -22,11 +24,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.unmsm.habitflow.ui.screens.*
+import com.unmsm.habitflow.ui.viewmodel.SessionViewModel
 
 sealed class Route(val path: String) {
     data object Splash : Route("splash")
     data object Onboarding : Route("onboarding")
     data object Login : Route("login")
+    data object ProfileSetup : Route("profile_setup")
     data object Register : Route("register")
     data object Recover : Route("recover")
     data object VerifyEmail : Route("verify_email")
@@ -59,14 +63,16 @@ private val bottomItems = listOf(
 @Composable
 fun HabitFlowApp() {
     val navController = rememberNavController()
+    val sessionViewModel: SessionViewModel = hiltViewModel()
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination
     val showBottom = bottomItems.any { item -> current?.hierarchy?.any { it.route == item.route.path } == true }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             if (showBottom) {
-                NavigationBar {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     bottomItems.forEach { item ->
                         NavigationBarItem(
                             selected = current?.hierarchy?.any { it.route == item.route.path } == true,
@@ -80,19 +86,27 @@ fun HabitFlowApp() {
         }
     ) { padding ->
         NavHost(navController = navController, startDestination = Route.Splash.path) {
-            composable(Route.Splash.path) { SplashScreen(padding) { navController.navigate(Route.Onboarding.path) } }
+            composable(Route.Splash.path) {
+                SplashScreen(padding) {
+                    navController.navigateClearingBackStack(
+                        if (sessionViewModel.isLoggedIn()) Route.Home.path else Route.Onboarding.path
+                    )
+                }
+            }
             composable(Route.Onboarding.path) { OnboardingScreen(padding, onFinish = { navController.navigate(Route.Login.path) }) }
             composable(Route.Login.path) {
                 LoginScreen(
                     padding = padding,
-                    onLogin = { navController.navigate(Route.Home.path) },
+                    onLogin = { navController.navigateClearingBackStack(Route.Home.path) },
+                    onProfileSetup = { navController.navigateClearingBackStack(Route.ProfileSetup.path) },
                     onRegister = { navController.navigate(Route.Register.path) },
                     onRecover = { navController.navigate(Route.Recover.path) }
                 )
             }
+            composable(Route.ProfileSetup.path) { ProfileSetupScreen(padding, onDone = { navController.navigateClearingBackStack(Route.Home.path) }) }
             composable(Route.Register.path) { RegisterScreen(padding, onDone = { navController.navigate(Route.VerifyEmail.path) }) }
             composable(Route.Recover.path) { RecoverPasswordScreen(padding) { navController.popBackStack() } }
-            composable(Route.VerifyEmail.path) { VerifyEmailScreen(padding) { navController.navigate(Route.Home.path) } }
+            composable(Route.VerifyEmail.path) { VerifyEmailScreen(padding) { navController.navigateClearingBackStack(Route.Home.path) } }
             composable(Route.Home.path) {
                 HomeScreen(
                     padding = padding,
@@ -119,10 +133,7 @@ fun HabitFlowApp() {
                     padding = padding,
                     onDelete = { navController.navigate(Route.DeleteAccount.path) },
                     onLogout = {
-                        navController.navigate(Route.Login.path) {
-                            popUpTo(Route.Home.path) { inclusive = true }
-                            launchSingleTop = true
-                        }
+                        navController.navigateClearingBackStack(Route.Login.path)
                     }
                 )
             }
@@ -131,6 +142,13 @@ fun HabitFlowApp() {
             composable(Route.Voice.path) { VoiceScreen(padding, onManual = { navController.navigate(Route.ManualHabit.path) }) }
             composable(Route.ManualHabit.path) { ManualHabitScreen(padding, onDone = { navController.popBackStack() }) }
         }
+    }
+}
+
+private fun NavHostController.navigateClearingBackStack(route: String) {
+    navigate(route) {
+        popUpTo(graph.id) { inclusive = true }
+        launchSingleTop = true
     }
 }
 
