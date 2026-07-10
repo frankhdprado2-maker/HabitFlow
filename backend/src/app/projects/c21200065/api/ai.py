@@ -1,6 +1,7 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+import httpx
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from app.projects.c21200065.api.deps import get_current_user
@@ -10,10 +11,12 @@ from app.projects.c21200065.domain.voice_conversation_service import (
     handle_voice_turn,
 )
 from app.projects.c21200065.infra.db.redis import redis_client
+from app.projects.c21200065.infra.settings import settings
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 _memory_sessions: dict[str, str] = {}
+_MAX_AUDIO_BYTES = 10 * 1024 * 1024
 
 
 class VoiceHabitContext(BaseModel):
@@ -47,6 +50,33 @@ class VoiceCommandResponse(BaseModel):
     quick_replies: list[str] = Field(default_factory=list)
     events: list[VoiceEventResponse] = Field(default_factory=list)
     conversation_id: str
+
+
+class VoiceTranscriptionResponse(BaseModel):
+    transcript: str
+    language: str = "es"
+
+
+@router.post("/transcribe", response_model=VoiceTranscriptionResponse)
+async def transcribe_audio(
+    audio: UploadFile = File(...),
+    language: str = Form("es"),
+    current_user=Depends(get_current_user),
+) -> VoiceTranscriptionResponse:
+    del current_user
+    content = await audio.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Audio file is empty")
+    if len(content) > _MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="Audio file is too large")
+
+    transcript = await _transcribe_with_stt_provider(
+        content=content,
+        filename=audio.filename or "habitflow-voice.m4a",
+        content_type=audio.content_type or "audio/mp4",
+        language=language,
+    )
+    return VoiceTranscriptionResponse(transcript=transcript, language=language)
 
 
 @router.post("/voice-command", response_model=VoiceCommandResponse)
@@ -117,3 +147,43 @@ async def _delete_session(conversation_id: str) -> None:
 
 def _session_key(conversation_id: str) -> str:
     return f"voice:conversation:{conversation_id}"
+
+
+async def _transcribe_with_stt_provider(
+    content: bytes,
+    filename: str,
+    content_type: str,
+    language: str,
+) -> str:
+    api_key = settings.STT_API_KEY or settings.LLM_API_KEY
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Missing STT_API_KEY or LLM_API_KEY for audio transcription",
+        )
+
+    base_url = settings.STT_BASE_URL.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f"{base_url}/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                data={
+                    "model": settings.STT_MODEL,
+                    "language": language,
+                    "response_format": "json",
+                },
+                files={"file": (filename, content, content_type)},
+            )
+            response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        detail = error.response.text[:300] if error.response is not None else str(error)
+        raise HTTPException(status_code=502, detail=f"Transcription provider failed: {detail}") from error
+    except httpx.HTTPError as error:
+        raise HTTPException(status_code=502, detail="Could not reach transcription provider") from error
+
+    data = response.json()
+    transcript = str(data.get("text") or data.get("transcript") or "").strip()
+    if not transcript:
+        raise HTTPException(status_code=422, detail="Transcription provider returned empty text")
+    return transcript

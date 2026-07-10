@@ -47,9 +47,7 @@ class ThemeViewModel @Inject constructor(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val habitRepository: HabitRepository,
-    private val voiceRepository: VoiceRepository,
-    private val voiceController: VoiceController
+    private val habitRepository: HabitRepository
 ) : ViewModel() {
     private val _voice = MutableStateFlow("" to "")
     private val _userName = MutableStateFlow("Estudiante")
@@ -76,25 +74,6 @@ class HomeViewModel @Inject constructor(
 
     fun mark(habit: Habit, status: HabitStatus = HabitStatus.Completed) {
         viewModelScope.launch { habitRepository.markHabit(habit, status) }
-    }
-
-    fun listen() {
-        voiceController.start(
-            onResult = { text ->
-                _voice.value = text to "Procesando..."
-                viewModelScope.launch {
-                    val habits = habitRepository.activeHabits()
-                    when (val result = voiceRepository.command(text, habits)) {
-                        is AppResult.Success -> {
-                            habitRepository.applyVoiceCommand(result.data)
-                            _voice.value = text to result.data.response
-                        }
-                        is AppResult.Error -> _voice.value = text to result.message
-                    }
-                }
-            },
-            onError = { error -> _voice.value = "" to error }
-        )
     }
 }
 
@@ -278,11 +257,90 @@ class VoiceViewModel @Inject constructor(
     private val _state = MutableStateFlow(VoiceUiState())
     val state: StateFlow<VoiceUiState> = _state
 
-    fun listen() {
-        _state.update { it.copy(listening = true, error = null) }
-        voiceController.start(
-            onResult = { text -> sendText(text) },
-            onError = { error -> _state.update { it.copy(listening = false, error = error) } }
+    fun showError(message: String) = _state.update {
+        it.copy(listening = false, recording = false, transcribing = false, error = message)
+    }
+
+    fun toggleRecording() {
+        if (state.value.recording) {
+            stopRecordingAndSend()
+        } else {
+            startRecording()
+        }
+    }
+
+    private fun startRecording() {
+        val result = voiceController.startRecording()
+        result.fold(
+            onSuccess = {
+                _state.update {
+                    it.copy(
+                        listening = true,
+                        recording = true,
+                        transcribing = false,
+                        response = "",
+                        error = null
+                    )
+                }
+            },
+            onFailure = { error ->
+                _state.update {
+                    it.copy(
+                        listening = false,
+                        recording = false,
+                        transcribing = false,
+                        error = error.message ?: "No pude iniciar el microfono."
+                    )
+                }
+            }
+        )
+    }
+
+    private fun stopRecordingAndSend() {
+        val result = voiceController.stopRecording()
+        result.fold(
+            onSuccess = { audioFile ->
+                _state.update {
+                    it.copy(
+                        listening = false,
+                        recording = false,
+                        transcribing = true,
+                        response = "Transcribiendo...",
+                        error = null
+                    )
+                }
+                viewModelScope.launch {
+                    when (val transcription = voiceRepository.transcribe(audioFile)) {
+                        is AppResult.Success -> {
+                            audioFile.delete()
+                            _state.update { it.copy(transcribing = false) }
+                            sendText(transcription.data)
+                        }
+                        is AppResult.Error -> {
+                            audioFile.delete()
+                            _state.update {
+                                it.copy(
+                                    transcribing = false,
+                                    response = "",
+                                    messages = it.messages + VoiceMessageUi("assistant", transcription.message),
+                                    error = transcription.message
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            onFailure = { error ->
+                _state.update {
+                    it.copy(
+                        listening = false,
+                        recording = false,
+                        transcribing = false,
+                        response = "",
+                        error = error.message ?: "No pude guardar el audio."
+                    )
+                }
+            }
         )
     }
 
@@ -292,6 +350,8 @@ class VoiceViewModel @Inject constructor(
         _state.update {
             it.copy(
                 listening = false,
+                recording = false,
+                transcribing = false,
                 transcript = clean,
                 response = "Procesando...",
                 messages = it.messages + VoiceMessageUi("user", clean),

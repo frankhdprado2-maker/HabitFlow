@@ -1,5 +1,9 @@
 package com.unmsm.habitflow.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,8 +41,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.ui.components.ClayCard
@@ -86,7 +92,7 @@ fun HomeScreen(
                 Row {
                     IconButton(onClick = onManual) { Icon(Icons.Default.Add, "Agregar") }
                     IconButton(onClick = onNotifications) { Icon(Icons.Default.Notifications, "Notificaciones") }
-                    IconButton(onClick = { viewModel.listen(); onVoice() }) { Icon(Icons.Default.Mic, "Voz") }
+                    IconButton(onClick = onVoice) { Icon(Icons.Default.Mic, "Voz") }
                 }
             }
             VerticalSpacer()
@@ -422,6 +428,22 @@ fun VoiceScreen(
     viewModel: VoiceViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
+    val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            viewModel.toggleRecording()
+        } else {
+            viewModel.showError("Activa el permiso de microfono para dictar por voz.")
+        }
+    }
+    val onMicClick = {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            viewModel.toggleRecording()
+        } else {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(20.dp),
@@ -431,10 +453,21 @@ fun VoiceScreen(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text("Voz", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text(if (state.listening) "Escuchando..." else "Conversacion activa")
+                    Text(
+                        when {
+                            state.recording -> "Grabando..."
+                            state.transcribing -> "Transcribiendo..."
+                            else -> "Conversacion activa"
+                        }
+                    )
                 }
-                IconButton(onClick = viewModel::listen, modifier = Modifier.size(68.dp)) {
-                    Icon(Icons.Default.Mic, contentDescription = "Hablar", modifier = Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
+                IconButton(onClick = onMicClick, modifier = Modifier.size(68.dp)) {
+                    Icon(
+                        Icons.Default.Mic,
+                        contentDescription = "Grabar voz",
+                        modifier = Modifier.size(42.dp),
+                        tint = if (state.recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         }
@@ -443,6 +476,7 @@ fun VoiceScreen(
                 ClayCard(Modifier.fillMaxWidth(), containerColor = MaterialTheme.colorScheme.surfaceVariant) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Prueba con una frase", fontWeight = FontWeight.SemiBold)
+                        Text("Toca el microfono para grabar y vuelve a tocarlo para enviar.")
                         Text("Complete leer 20 paginas")
                         Text("Salte tomar agua")
                         Text("No pude estudiar algoritmos")
@@ -460,8 +494,8 @@ fun VoiceScreen(
                 }
             }
         }
-        if (state.response == "Procesando...") {
-            item { Text("Procesando...", color = MaterialTheme.colorScheme.tertiary) }
+        if (state.response == "Procesando..." || state.response == "Transcribiendo...") {
+            item { Text(state.response, color = MaterialTheme.colorScheme.tertiary) }
         }
         if (state.quickReplies.isNotEmpty()) {
             item {

@@ -112,6 +112,8 @@ data class VoiceMessageUi(
 
 data class VoiceUiState(
     val listening: Boolean = false,
+    val recording: Boolean = false,
+    val transcribing: Boolean = false,
     val transcript: String = "",
     val response: String = "",
     val messages: List<VoiceMessageUi> = emptyList(),

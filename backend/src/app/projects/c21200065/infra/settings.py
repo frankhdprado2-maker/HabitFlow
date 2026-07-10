@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = "https://api.openai.com/v1"
     LLM_API_KEY: str = ""
     LLM_MODEL: str = "gpt-5.5"
+    STT_BASE_URL: str = "https://api.openai.com/v1"
+    STT_API_KEY: str = ""
+    STT_MODEL: str = "whisper-1"
 
     # Seed
     SEED_ADMIN_EMAIL: str

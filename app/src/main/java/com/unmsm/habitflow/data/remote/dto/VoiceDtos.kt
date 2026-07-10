@@ -39,3 +39,9 @@ data class VoiceCommandResponse(
     val events: List<VoiceEventDto> = emptyList(),
     @Json(name = "conversation_id") val conversationId: String? = null
 )
+
+@JsonClass(generateAdapter = true)
+data class VoiceTranscriptionResponse(
+    val transcript: String,
+    val language: String = "es"
+)
