@@ -27,6 +27,22 @@ def _collect_routes(router) -> list[str]:
     return paths
 
 
+def _collect_app_routes(app: FastAPI, prefix: str) -> list[str]:
+    paths = []
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", None)
+        if not path or not methods or not path.startswith(prefix):
+            continue
+
+        relative_path = path.removeprefix(prefix) or "/"
+        for method in sorted(methods):
+            if method in {"HEAD", "OPTIONS"}:
+                continue
+            paths.append(f"{method} {relative_path}")
+    return paths
+
+
 def load_projects(app: FastAPI):
     registry.clear()
 
@@ -50,7 +66,7 @@ def load_projects(app: FastAPI):
                 registry.append({
                     "name": m.name,
                     "prefix": prefix,
-                    "routes": _collect_routes(router),
+                    "routes": _collect_app_routes(app, prefix),
                 })
                 print(f"LOADED: {m.name}")
             else:
