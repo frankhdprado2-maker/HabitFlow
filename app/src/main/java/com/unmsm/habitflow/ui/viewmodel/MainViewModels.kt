@@ -256,6 +256,17 @@ class VoiceViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(VoiceUiState())
     val state: StateFlow<VoiceUiState> = _state
+    private var greeted = false
+
+    fun startConversation() {
+        if (greeted || state.value.messages.isNotEmpty()) return
+        greeted = true
+        val greeting = "Hola, como estas? Cuentame por voz que habito hiciste hoy o cual quieres crear."
+        _state.update {
+            it.copy(messages = it.messages + VoiceMessageUi("assistant", greeting))
+        }
+        voiceController.speak(greeting)
+    }
 
     fun showError(message: String) = _state.update {
         it.copy(listening = false, recording = false, transcribing = false, error = message)
@@ -318,6 +329,7 @@ class VoiceViewModel @Inject constructor(
                         }
                         is AppResult.Error -> {
                             audioFile.delete()
+                            voiceController.speak(transcription.message)
                             _state.update {
                                 it.copy(
                                     transcribing = false,
@@ -365,6 +377,7 @@ class VoiceViewModel @Inject constructor(
             when (val result = voiceRepository.command(clean, habits, conversationId)) {
                 is AppResult.Success -> {
                     habitRepository.applyVoiceCommand(result.data)
+                    voiceController.speak(result.data.response)
                     _state.update {
                         it.copy(
                             response = result.data.response,
@@ -376,6 +389,7 @@ class VoiceViewModel @Inject constructor(
                     }
                 }
                 is AppResult.Error -> {
+                    voiceController.speak(result.message)
                     _state.update {
                         it.copy(
                             response = "",

@@ -59,3 +59,28 @@ def test_registers_failed_status_and_compound_events() -> None:
 
     assert failed.events[0].status == "failed"
     assert [event.habit_id for event in compound.events] == ["study", "water"]
+
+
+def test_proposes_new_habit_from_spoken_conversation_and_confirms_it() -> None:
+    first_turn = handle_voice_turn("puede leer 20 paginas de un libro", [])
+
+    assert first_turn.intent == "aclaracion"
+    assert first_turn.session.awaiting_confirmation is True
+    assert first_turn.session.pending_habit_name == "Leer 20 paginas de un libro"
+
+    confirmed = handle_voice_turn("si guardalo", [], first_turn.session)
+
+    assert confirmed.intent == "registrar_habito"
+    assert confirmed.clear_session is True
+    assert confirmed.events[0].habit_id is None
+    assert confirmed.events[0].habit_name == "Leer 20 paginas de un libro"
+    assert confirmed.events[0].status == "completed"
+    assert confirmed.events[0].quantity == 20
+
+
+def test_social_answer_keeps_the_conversation_open() -> None:
+    result = handle_voice_turn("estoy bien", [])
+
+    assert result.intent == "aclaracion"
+    assert result.events == []
+    assert "Que habito" in result.response

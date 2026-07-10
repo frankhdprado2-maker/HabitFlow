@@ -29,6 +29,8 @@ class VoiceSession:
     pending_status: VoiceStatus = "completed"
     pending_quantity: float | None = None
     pending_unit: str | None = None
+    pending_habit_name: str | None = None
+    awaiting_confirmation: bool = False
 
     def to_json(self) -> str:
         return json.dumps(
@@ -37,6 +39,8 @@ class VoiceSession:
                 "pending_status": self.pending_status,
                 "pending_quantity": self.pending_quantity,
                 "pending_unit": self.pending_unit,
+                "pending_habit_name": self.pending_habit_name,
+                "awaiting_confirmation": self.awaiting_confirmation,
             }
         )
 
@@ -53,6 +57,8 @@ class VoiceSession:
             pending_status=data.get("pending_status") or "completed",
             pending_quantity=data.get("pending_quantity"),
             pending_unit=data.get("pending_unit"),
+            pending_habit_name=data.get("pending_habit_name"),
+            awaiting_confirmation=bool(data.get("awaiting_confirmation")),
         )
 
 
@@ -77,9 +83,44 @@ def handle_voice_turn(text: str, habits: list[HabitContext], session: VoiceSessi
     if any(word in clean_text for word in ["cancelar", "olvida", "dejalo"]):
         return VoiceTurnResult(intent="cancelar", response="Listo, cancele esta conversacion.", clear_session=True)
 
+    if _is_greeting(clean_text) or _is_social_response(clean_text):
+        question = "Me alegra escucharte. Que habito hiciste hoy o cual quieres crear?"
+        return VoiceTurnResult(
+            intent="aclaracion",
+            response=question,
+            question=question,
+            quick_replies=[habit.name for habit in habits[:4]] + ["Registrar uno nuevo"],
+            session=session,
+        )
+
     status = _status_from_text(clean_text) or session.pending_status
     quantity, unit = _quantity_from_text(clean_text)
     parts = _split_compound(clean_text)
+
+    if session.awaiting_confirmation and session.pending_habit_name:
+        if _is_affirmative(clean_text):
+            event = VoiceEvent(
+                habit_id=None,
+                habit_name=session.pending_habit_name,
+                status=session.pending_status,
+                quantity=quantity or session.pending_quantity,
+                unit=unit or session.pending_unit,
+            )
+            return VoiceTurnResult(
+                intent="registrar_habito",
+                response=f"Perfecto, cree y registre el habito {event.habit_name}.",
+                events=[event],
+                clear_session=True,
+            )
+        if _is_negative(clean_text):
+            question = "De acuerdo. Dime el nombre del habito como quieres guardarlo."
+            return VoiceTurnResult(
+                intent="aclaracion",
+                response=question,
+                question=question,
+                quick_replies=["Cancelar"],
+                session=VoiceSession(pending_status=session.pending_status),
+            )
 
     events: list[VoiceEvent] = []
     unresolved: list[HabitContext] = []
@@ -160,6 +201,24 @@ def handle_voice_turn(text: str, habits: list[HabitContext], session: VoiceSessi
             clear_session=True,
         )
 
+    proposed_habit = _extract_new_habit_name(clean_text)
+    if proposed_habit:
+        next_session = VoiceSession(
+            pending_status=status,
+            pending_quantity=quantity,
+            pending_unit=unit,
+            pending_habit_name=proposed_habit,
+            awaiting_confirmation=True,
+        )
+        question = f"Entendi que quieres crear y registrar el habito {proposed_habit}. Lo guardo?"
+        return VoiceTurnResult(
+            intent="aclaracion",
+            response=question,
+            question=question,
+            quick_replies=["Si, guardalo", "No, cambiar", "Cancelar"],
+            session=next_session,
+        )
+
     question = "Que habito quieres registrar?"
     return VoiceTurnResult(
         intent="aclaracion",
@@ -180,7 +239,7 @@ def _status_from_text(text: str) -> VoiceStatus | None:
         return "skipped"
     if any(word in text for word in ["falle", "no pude", "perdi"]):
         return "failed"
-    if any(word in text for word in ["hice", "complete", "termine", "corri", "lei", "listo"]):
+    if any(word in text for word in ["hice", "complete", "termine", "corri", "lei", "pude", "puede", "listo"]):
         return "completed"
     return None
 
@@ -232,6 +291,109 @@ def _infer_generic_habit(text: str, habits: list[HabitContext]) -> HabitContext 
             if len(matches) == 1:
                 return matches[0]
     return None
+
+
+def _is_greeting(text: str) -> bool:
+    return text in {"hola", "buenas", "buenos dias", "buenas tardes", "buenas noches"}
+
+
+def _is_social_response(text: str) -> bool:
+    if _extract_new_habit_name(text) or _quantity_from_text(text)[0] is not None:
+        return False
+    return any(phrase in text for phrase in ["estoy bien", "todo bien", "bien", "mas o menos", "mal"])
+
+
+def _is_affirmative(text: str) -> bool:
+    return any(
+        re.search(rf"\b{re.escape(word)}\b", text)
+        for word in ["si", "claro", "ok", "dale", "guardalo", "registralo", "correcto"]
+    )
+
+
+def _is_negative(text: str) -> bool:
+    return any(
+        re.search(rf"\b{re.escape(word)}\b", text)
+        for word in ["no", "cambiar", "corrige", "otro"]
+    )
+
+
+def _extract_new_habit_name(text: str) -> str | None:
+    working = re.sub(r"[?¿¡!.,;:]+", " ", text)
+    working = re.sub(r"\s+", " ", working).strip()
+    if not working:
+        return None
+
+    action_starts = [
+        "leer",
+        "estudiar",
+        "tomar agua",
+        "tomar",
+        "correr",
+        "caminar",
+        "meditar",
+        "hacer ejercicio",
+        "ejercicio",
+    ]
+    prefix_actions = {
+        "lei": "leer",
+        "leí": "leer",
+        "corri": "correr",
+        "corrí": "correr",
+        "estudie": "estudiar",
+        "estudié": "estudiar",
+        "tome": "tomar",
+        "tomé": "tomar",
+    }
+    removable_prefixes = [
+        "quiero registrar",
+        "quiero crear",
+        "crear",
+        "crea",
+        "registrar",
+        "registra",
+        "registre",
+        "hice",
+        "complete",
+        "termine",
+        "pude",
+        "puede",
+    ]
+
+    for phrase, replacement in prefix_actions.items():
+        match = re.search(rf"\b{re.escape(phrase)}\b", working)
+        if match:
+            candidate = f"{replacement} {working[match.end():]}".strip()
+            return _format_habit_name(candidate)
+
+    starts: list[tuple[int, str]] = []
+    for phrase in action_starts:
+        match = re.search(rf"\b{re.escape(phrase)}\b", working)
+        if match:
+            starts.append((match.start(), working[match.start():]))
+    if starts:
+        starts.sort(key=lambda item: item[0])
+        return _format_habit_name(starts[0][1])
+
+    for phrase in removable_prefixes:
+        match = re.search(rf"\b{re.escape(phrase)}\b", working)
+        if match:
+            candidate = working[match.end():].strip()
+            return _format_habit_name(candidate)
+
+    return None
+
+
+def _format_habit_name(value: str) -> str | None:
+    previous = ""
+    value = value.strip()
+    while value != previous:
+        previous = value
+        value = re.sub(r"^(un|una|el|la|los|las|habito|hábito|de)\s+", "", value).strip()
+    value = re.sub(r"\s+", " ", value).strip()
+    if len(value) < 3:
+        return None
+    value = value[:70].strip()
+    return value[:1].upper() + value[1:]
 
 
 def _confirmation(events: list[VoiceEvent]) -> str:

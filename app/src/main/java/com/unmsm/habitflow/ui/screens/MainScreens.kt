@@ -428,6 +428,9 @@ fun VoiceScreen(
     viewModel: VoiceViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    LaunchedEffect(Unit) {
+        viewModel.startConversation()
+    }
     val context = LocalContext.current
     val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
