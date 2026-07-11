@@ -3,8 +3,7 @@ import time
 from collections import Counter
 from typing import Annotated, Any, Literal
 
-import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.projects.c21200065.api.deps import get_current_user
@@ -27,11 +26,8 @@ from app.projects.c21200065.infra.settings import settings
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 CurrentUserDep = Annotated[dict, Depends(get_current_user)]
-AudioFile = Annotated[UploadFile, File()]
-LanguageForm = Annotated[str, Form()]
 
 _memory_sessions: dict[str, str] = {}
-_MAX_AUDIO_BYTES = 10 * 1024 * 1024
 habit_interpreter = GeminiHabitInterpreter()
 
 
@@ -205,27 +201,6 @@ class VoiceConversationResponse(BaseModel):
     adaptive_recommendation: AdaptiveRecommendationResponse | None = None
 
 
-class VoiceTranscriptionResponse(BaseModel):
-    transcript: str
-    language: str = "es"
-
-
-class VoiceTranscriptionStatusResponse(BaseModel):
-    configured: bool
-    provider: str
-    model: str
-
-
-@router.get("/transcription-status", response_model=VoiceTranscriptionStatusResponse)
-async def transcription_status(current_user: CurrentUserDep) -> VoiceTranscriptionStatusResponse:
-    del current_user
-    return VoiceTranscriptionStatusResponse(
-        configured=bool(settings.STT_API_KEY),
-        provider=settings.STT_BASE_URL.rstrip("/"),
-        model=settings.STT_MODEL,
-    )
-
-
 @router.post("/interpret-habit", response_model=HabitInterpretationResponse)
 async def interpret_habit(
     request: HabitInterpretationRequest,
@@ -243,28 +218,6 @@ async def interpret_habit(
             "provider_error": 502,
         }.get(error.kind, 502)
         raise HTTPException(status_code=status_code, detail=error.message) from error
-
-
-@router.post("/transcribe", response_model=VoiceTranscriptionResponse)
-async def transcribe_audio(
-    audio: AudioFile,
-    current_user: CurrentUserDep,
-    language: LanguageForm = "es",
-) -> VoiceTranscriptionResponse:
-    del current_user
-    content = await audio.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="Audio file is empty")
-    if len(content) > _MAX_AUDIO_BYTES:
-        raise HTTPException(status_code=413, detail="Audio file is too large")
-
-    transcript = await _transcribe_with_stt_provider(
-        content=content,
-        filename=audio.filename or "habitflow-voice.m4a",
-        content_type=audio.content_type or "audio/mp4",
-        language=language,
-    )
-    return VoiceTranscriptionResponse(transcript=transcript, language=language)
 
 
 @router.post("/voice-command", response_model=VoiceCommandResponse)
@@ -802,49 +755,3 @@ def _day_start_ms() -> int:
         )
         * 1000
     )
-
-
-async def _transcribe_with_stt_provider(
-    content: bytes,
-    filename: str,
-    content_type: str,
-    language: str,
-) -> str:
-    api_key = settings.STT_API_KEY
-    if not api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="Missing STT_API_KEY for audio transcription",
-        )
-
-    base_url = settings.STT_BASE_URL.rstrip("/")
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
-                f"{base_url}/audio/transcriptions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                data={
-                    "model": settings.STT_MODEL,
-                    "language": language,
-                    "response_format": "json",
-                },
-                files={"file": (filename, content, content_type)},
-            )
-            response.raise_for_status()
-    except httpx.HTTPStatusError as error:
-        detail = error.response.text[:300] if error.response is not None else str(error)
-        raise HTTPException(
-            status_code=502,
-            detail=f"Transcription provider failed: {detail}",
-        ) from error
-    except httpx.HTTPError as error:
-        raise HTTPException(
-            status_code=502,
-            detail="Could not reach transcription provider",
-        ) from error
-
-    data = response.json()
-    transcript = str(data.get("text") or data.get("transcript") or "").strip()
-    if not transcript:
-        raise HTTPException(status_code=422, detail="Transcription provider returned empty text")
-    return transcript

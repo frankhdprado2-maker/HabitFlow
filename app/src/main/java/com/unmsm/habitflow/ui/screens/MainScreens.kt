@@ -671,7 +671,11 @@ fun VoiceScreen(
             } else {
                 "Debes permitir el acceso al micrófono para dictar por voz."
             }
-            viewModel.showError(message, VoiceErrorType.InsufficientPermissions)
+            viewModel.showError(
+                message = message,
+                type = VoiceErrorType.InsufficientPermissions,
+                permissionPermanentlyDenied = permanentlyDenied
+            )
         }
     }
     val openSettings = {
@@ -792,7 +796,8 @@ fun VoiceScreen(
         }
         if (state.error != null) {
             item {
-                val permissionError = (state.phase as? VoiceAssistantPhase.Error)?.type == VoiceErrorType.InsufficientPermissions
+                val permissionError = (state.phase as? VoiceAssistantPhase.Error)?.type == VoiceErrorType.InsufficientPermissions &&
+                    state.permissionPermanentlyDenied
                 ClayCard(containerColor = MaterialTheme.colorScheme.errorContainer) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.onErrorContainer)

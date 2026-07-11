@@ -16,10 +16,10 @@
 - DAOs are scoped and UI observes Room through repositories/ViewModels, which matches the offline-first direction.
 - Auth uses Retrofit/OkHttp/Moshi, JWT access and refresh tokens, `TokenAuthenticator`, and encrypted token storage.
 - Google login originally used legacy `GoogleSignIn`; it is now migrated to Credential Manager with Google ID token.
-- Voice currently records audio with `MediaRecorder`, sends it to backend transcription, then sends text to `/ai/voice-command`; it does not use `SpeechRecognizer` partial results.
-- Voice UI state is represented by loose booleans (`listening`, `recording`, `transcribing`) instead of a typed state machine.
+- Voice registration uses Android `SpeechRecognizer` for on-device/system speech-to-text, keeps partial results in the editable transcript, and sends only text to FastAPI.
+- Voice UI state now uses a typed phase for listening, partial results, processing, confirmation, completion, and errors.
 - Backend FastAPI project is mounted under `/c21200065`.
-- Backend AI routes include `/ai/transcribe`, `/ai/transcription-status`, and `/ai/voice-command`.
+- Backend AI routes interpret text only for habit voice registration; audio transcription routes are intentionally not exposed.
 - Backend voice domain already has a local parser, Redis/memory conversation session, ambiguity handling, and tests.
 - Backend profile model has name, username, goal, timezone, avatar fields, and categories, but lacks onboarding/theme/accent/voice/locale fields.
 - Tests present: Android default skeleton tests and backend `tests/test_voice_conversation.py`.
@@ -29,10 +29,10 @@
 - Many visible Spanish strings are hardcoded in composables and ViewModels, several without accents.
 - Purple/violet defaults are repeated in theme and settings.
 - Screen files are large, making comprehensive redesign risky without incremental extraction.
-- README says SpeechRecognizer is used, but code uses `MediaRecorder`; this mismatch is a regression risk for voice expectations.
+- Voice depends on Android speech recognition availability and should keep a manual text fallback for unsupported devices.
 - `AuthRepository.login/register/googleLogin` clears all local tables after token save, so offline user data can be lost on auth boundary.
 - Habit completion currently creates events but does not update habit streak locally, so today's completion detection is approximate.
-- `applyVoiceCommand` executes `registrar_habito` immediately; it does not require Android-side visual confirmation.
+- Voice habit interpretation requires Android-side editable confirmation before saving.
 
 ## Files to modify in this phase
 

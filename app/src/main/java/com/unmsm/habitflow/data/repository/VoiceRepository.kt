@@ -15,30 +15,13 @@ import com.unmsm.habitflow.domain.model.HabitInterpretationResult
 import com.unmsm.habitflow.domain.model.HabitEvent
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.util.AppResult
-import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 
 @Singleton
 class VoiceRepository @Inject constructor(
     private val voiceApi: VoiceApi
 ) {
-    suspend fun transcribe(audioFile: File, language: String = "es"): AppResult<String> =
-        runNetwork {
-            val audioBody = audioFile.asRequestBody("audio/mp4".toMediaType())
-            val audioPart = MultipartBody.Part.createFormData(
-                name = "audio",
-                filename = audioFile.name,
-                body = audioBody
-            )
-            val languageBody = language.toRequestBody("text/plain".toMediaType())
-            voiceApi.transcribe(audioPart, languageBody).transcript
-        }
-
     suspend fun command(
         text: String,
         habits: List<Habit> = emptyList(),

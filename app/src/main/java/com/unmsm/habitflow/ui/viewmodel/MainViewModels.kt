@@ -369,13 +369,18 @@ class VoiceViewModel @Inject constructor(
         speak(greeting)
     }
 
-    fun showError(message: String, type: VoiceErrorType = VoiceErrorType.Unknown) = _state.update {
+    fun showError(
+        message: String,
+        type: VoiceErrorType = VoiceErrorType.Unknown,
+        permissionPermanentlyDenied: Boolean = false
+    ) = _state.update {
         it.copy(
             phase = VoiceAssistantPhase.Error(type, message),
             listening = false,
             recording = false,
             transcribing = false,
             response = "",
+            permissionPermanentlyDenied = permissionPermanentlyDenied,
             error = message
         )
     }
@@ -391,7 +396,13 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun requestMicrophonePermission() {
-        _state.update { it.copy(phase = VoiceAssistantPhase.RequestingPermission, error = null) }
+        _state.update {
+            it.copy(
+                phase = VoiceAssistantPhase.RequestingPermission,
+                permissionPermanentlyDenied = false,
+                error = null
+            )
+        }
     }
 
     fun cancelListening() {
@@ -403,6 +414,7 @@ class VoiceViewModel @Inject constructor(
                 recording = false,
                 partialTranscript = "",
                 response = "",
+                permissionPermanentlyDenied = false,
                 error = null
             )
         }
@@ -425,13 +437,24 @@ class VoiceViewModel @Inject constructor(
                         transcript = partial,
                         listening = true,
                         recording = true,
+                        permissionPermanentlyDenied = false,
                         error = null
                     )
                 }
             },
             onFinal = { finalText ->
-                _state.update { it.copy(partialTranscript = "", listening = false, recording = false) }
-                sendText(finalText)
+                _state.update {
+                    it.copy(
+                        phase = VoiceAssistantPhase.Idle,
+                        transcript = finalText,
+                        partialTranscript = "",
+                        listening = false,
+                        recording = false,
+                        response = "Revisa la transcripción antes de enviarla.",
+                        permissionPermanentlyDenied = false,
+                        error = null
+                    )
+                }
             },
             onError = { recognitionError ->
                 _state.update {
@@ -441,6 +464,7 @@ class VoiceViewModel @Inject constructor(
                         recording = false,
                         partialTranscript = "",
                         response = "",
+                        permissionPermanentlyDenied = false,
                         error = recognitionError.message
                     )
                 }
@@ -456,6 +480,7 @@ class VoiceViewModel @Inject constructor(
                         transcribing = false,
                         partialTranscript = "",
                         response = "Escuchando...",
+                        permissionPermanentlyDenied = false,
                         error = null
                     )
                 }
@@ -468,6 +493,7 @@ class VoiceViewModel @Inject constructor(
                         listening = false,
                         recording = false,
                         transcribing = false,
+                        permissionPermanentlyDenied = false,
                         error = message
                     )
                 }
@@ -477,12 +503,19 @@ class VoiceViewModel @Inject constructor(
 
     private fun stopListeningAndUsePartial() {
         val partial = state.value.partialTranscript.ifBlank { state.value.transcript }.trim()
-        voiceController.stopListening()
+        voiceController.cancelListening()
         _state.update { it.copy(listening = false, recording = false, partialTranscript = "") }
         if (partial.isBlank()) {
             showError("No escuché una frase completa. Intenta nuevamente o escríbela.")
         } else {
-            sendText(partial)
+            _state.update {
+                it.copy(
+                    phase = VoiceAssistantPhase.Idle,
+                    transcript = partial,
+                    response = "Revisa la transcripción antes de enviarla.",
+                    error = null
+                )
+            }
         }
     }
 
@@ -519,6 +552,7 @@ class VoiceViewModel @Inject constructor(
                 interpretedHabits = emptyList(),
                 interpretationConfidence = 0.0,
                 savingInterpretation = false,
+                permissionPermanentlyDenied = false,
                 error = null
             )
         }

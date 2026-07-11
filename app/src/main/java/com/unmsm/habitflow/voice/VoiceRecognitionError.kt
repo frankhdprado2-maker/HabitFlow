@@ -17,5 +17,6 @@ enum class VoiceErrorType {
 
 data class VoiceRecognitionError(
     val type: VoiceErrorType,
-    val message: String
+    val message: String,
+    val code: Int? = null
 )

@@ -74,12 +74,6 @@ data class VoicePlanDto(
 )
 
 @JsonClass(generateAdapter = true)
-data class VoiceTranscriptionResponse(
-    val transcript: String,
-    val language: String = "es"
-)
-
-@JsonClass(generateAdapter = true)
 data class HabitInterpretationRequest(
     val text: String,
     val timezone: String = "America/Lima"

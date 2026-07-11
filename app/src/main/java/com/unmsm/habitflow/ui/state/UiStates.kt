@@ -187,6 +187,7 @@ data class VoiceUiState(
     val habitAssociationOptions: List<HabitAssociationOptionUi> = emptyList(),
     val interpretationConfidence: Double = 0.0,
     val savingInterpretation: Boolean = false,
+    val permissionPermanentlyDenied: Boolean = false,
     val error: String? = null
 )
 
