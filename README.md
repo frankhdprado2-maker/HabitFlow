@@ -84,15 +84,22 @@ Ese manual explica el codigo por capas: Android, navegacion, ViewModels, reposit
 - Historial local.
 - Estadisticas basicas.
 
-### Voz
+### Voz e interpretacion inteligente
 
-La pantalla de voz incluye un tutorial con ejemplos. El flujo actual es:
+La pantalla de voz esta en la navegacion principal como `Asistente de voz` desde Home. El proyecto detectado es Android nativo con Kotlin + Jetpack Compose; por eso el reconocimiento usa APIs nativas de Android: `SpeechRecognizer`, `RecognizerIntent` y `TextToSpeech`. No se usa Web Speech API.
 
-1. El usuario toca el microfono.
-2. Android convierte voz a texto con `SpeechRecognizer`.
-3. La frase se envia al backend en `/ai/voice-command`.
-4. El backend interpreta la intencion.
-5. Si detecta una accion de registro, Android crea o actualiza el habito localmente.
+Flujo actual:
+
+1. El usuario toca el microfono en `Registrar con voz`.
+2. Android solicita `RECORD_AUDIO` en tiempo de ejecucion si hace falta.
+3. Android convierte voz a texto con `SpeechRecognizer` configurado para `es-PE`.
+4. La transcripcion aparece en pantalla y puede editarse manualmente.
+5. La app envia solo texto autenticado a `POST /ai/interpret-habit`.
+6. FastAPI llama a Gemini con `google-genai`, valida la respuesta con Pydantic y responde con habitos estructurados.
+7. Android muestra una confirmacion editable con nombre, estado, cantidad, unidad, fecha, notas y asociacion con habitos existentes.
+8. Solo al tocar `Confirmar y registrar`, Android reutiliza `HabitRepository.applyVoiceCommand`, Room y `geo-events/`.
+
+La IA nunca guarda automaticamente un habito. Si detecta `query_habit`, la app no guarda nada y muestra que las consultas inteligentes quedan para una version posterior.
 
 Ejemplos soportados:
 
@@ -101,6 +108,8 @@ Ya corri 30 minutos
 Complete leer 20 paginas
 Salte tomar agua
 No pude estudiar algoritmos
+Hoy medite diez minutos y lei veinte paginas
+Manana quiero correr treinta minutos
 ```
 
 ### Datos Iniciales
@@ -134,6 +143,7 @@ POST /storage/confirm
 GET  /storage/files
 DELETE /storage/file/{id}
 POST /ai/voice-command
+POST /ai/interpret-habit
 ```
 
 ## Configuracion Android
@@ -207,6 +217,8 @@ Variable obligatoria:
 
 ```env
 PYTHONPATH=src
+GEMINI_API_KEY=tu_clave_de_gemini
+GEMINI_MODEL=gemini-3.1-flash-lite
 ```
 
 Las demas variables deben configurarse en Render Environment. Usa como guia:
@@ -226,3 +238,55 @@ Desde la raiz del proyecto:
 ```
 
 APK generado:
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+## Instalar y ejecutar
+
+Backend local:
+
+```powershell
+cd backend
+pip install -r requirements.txt
+$env:PYTHONPATH="src"
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Android debug:
+
+```powershell
+.\gradlew.bat assembleDebug
+```
+
+Pruebas:
+
+```powershell
+.\gradlew.bat testDebugUnitTest
+cd backend
+$env:PYTHONPATH="src"
+pytest
+```
+
+## Probar voz en emulador Android
+
+1. En `local.properties`, usa `BASE_URL=http://10.0.2.2:8000/c21200065/` para backend local o la URL de Render para produccion.
+2. Inicia FastAPI con las variables de entorno y `GEMINI_API_KEY`.
+3. Abre la app en el emulador, inicia sesion y entra a `Asistente de voz`.
+4. Toca el microfono, concede `RECORD_AUDIO`, dicta una frase y revisa la transcripcion.
+5. Edita el texto si hace falta, envia, corrige las tarjetas y toca `Confirmar y registrar`.
+
+## Probar en celular fisico
+
+1. Usa una URL accesible desde el telefono: Render o la IP LAN de tu PC, por ejemplo `http://192.168.1.20:8000/c21200065/`.
+2. Si usas IP local, ejecuta FastAPI con `--host 0.0.0.0` y permite el puerto en el firewall.
+3. Configura `BASE_URL` en `local.properties`, recompila e instala el APK.
+4. Concede microfono, dicta una frase y confirma manualmente antes de guardar.
+
+## Limitaciones conocidas
+
+- El reconocimiento de voz depende del dispositivo/servicios Android; el modo offline solo funciona si Android lo soporta.
+- Las consultas tipo `Cuantas veces medite esta semana?` se detectan como `query_habit`, pero todavia no generan respuestas estadisticas inteligentes.
+- La asociacion con habitos existentes se infiere localmente por nombre y puede corregirse con chips antes de guardar.
+- No se guarda audio ni se envia audio a FastAPI; solo se envia texto.

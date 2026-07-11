@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.unmsm.habitflow.data.repository.AuthRepository
 import com.unmsm.habitflow.data.repository.HabitRepository
 import com.unmsm.habitflow.data.repository.SettingsRepository
+import com.unmsm.habitflow.ui.state.GoogleLoginState
 import com.unmsm.habitflow.ui.state.LoginUiState
 import com.unmsm.habitflow.ui.state.ProfileSetupUiState
 import com.unmsm.habitflow.ui.state.RegisterUiState
@@ -40,11 +41,49 @@ class LoginViewModel @Inject constructor(
 
     fun updateEmail(value: String) = _state.update { it.copy(email = value, error = null, needsProfile = false) }
     fun updatePassword(value: String) = _state.update { it.copy(password = value, error = null, needsProfile = false) }
-    fun showError(message: String) = _state.update { it.copy(loading = false, error = message, needsProfile = false) }
-    fun beginExternalLogin() = _state.update { it.copy(loading = true, error = null, needsProfile = false) }
+    fun showError(message: String) = _state.update {
+        it.copy(loading = false, error = message, needsProfile = false)
+    }
+
+    fun showGoogleError(message: String) = _state.update {
+        it.copy(
+            loading = false,
+            googleState = GoogleLoginState.Error(message),
+            error = message,
+            needsProfile = false
+        )
+    }
+
+    fun beginGoogleOpening(): Boolean {
+        if (state.value.googleState.isActive()) return false
+        _state.update {
+            it.copy(
+                loading = false,
+                googleState = GoogleLoginState.OpeningGoogle,
+                error = null,
+                needsProfile = false
+            )
+        }
+        return true
+    }
+
+    fun markGoogleCredentialReceived() = _state.update {
+        it.copy(googleState = GoogleLoginState.ContactingBackend, error = null, needsProfile = false)
+    }
+
+    fun resetGoogleFlow() = _state.update {
+        it.copy(loading = false, googleState = GoogleLoginState.Idle, error = null)
+    }
+
+    fun warmUpBackend() {
+        viewModelScope.launch {
+            authRepository.warmUp()
+        }
+    }
 
     fun login() {
         val current = state.value
+        if (current.loading || current.googleState.isActive()) return
         if (!isEmailValid(current.email) || current.password.isBlank()) {
             showError("Ingresa un email valido y tu contrasena.")
             return
@@ -59,31 +98,63 @@ class LoginViewModel @Inject constructor(
     }
 
     fun googleLogin(idToken: String) {
+        if (idToken.isBlank()) {
+            showGoogleError("Google no devolvio token. Revisa el Web Client ID.")
+            return
+        }
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null, needsProfile = false) }
+            _state.update {
+                it.copy(
+                    loading = false,
+                    googleState = GoogleLoginState.ContactingBackend,
+                    error = null,
+                    needsProfile = false
+                )
+            }
             when (val result = authRepository.googleLogin(idToken)) {
                 is AppResult.Success -> finishLogin()
-                is AppResult.Error -> _state.update { it.copy(loading = false, error = result.message) }
+                is AppResult.Error -> _state.update {
+                    it.copy(
+                        loading = false,
+                        googleState = GoogleLoginState.Error(result.message),
+                        error = result.message
+                    )
+                }
             }
         }
     }
 
     private suspend fun finishLogin() {
+        _state.update { it.copy(googleState = GoogleLoginState.LoadingProfile, error = null) }
         when (val profile = authRepository.me()) {
             is AppResult.Success -> {
                 _state.update {
                     it.copy(
                         loading = false,
+                        googleState = GoogleLoginState.Success,
                         loggedIn = profile.data.profileComplete,
                         needsProfile = !profile.data.profileComplete,
                         error = null
                     )
                 }
             }
-            is AppResult.Error -> _state.update { it.copy(loading = false, loggedIn = true, error = null) }
+            is AppResult.Error -> _state.update {
+                it.copy(
+                    loading = false,
+                    googleState = GoogleLoginState.Error("No pudimos cargar tu perfil. Intentalo nuevamente."),
+                    loggedIn = false,
+                    needsProfile = false,
+                    error = "No pudimos cargar tu perfil. Intentalo nuevamente."
+                )
+            }
         }
     }
 }
+
+private fun GoogleLoginState.isActive(): Boolean =
+    this is GoogleLoginState.OpeningGoogle ||
+        this is GoogleLoginState.ContactingBackend ||
+        this is GoogleLoginState.LoadingProfile
 
 @HiltViewModel
 class RegisterViewModel @Inject constructor(

@@ -8,13 +8,18 @@ import com.unmsm.habitflow.data.local.entity.NotificationEntity
 import com.unmsm.habitflow.data.local.entity.PlanRecommendationEntity
 import com.unmsm.habitflow.data.local.entity.UserProfileEntity
 import com.unmsm.habitflow.data.remote.dto.GeoEventDto
+import com.unmsm.habitflow.data.remote.dto.HabitInterpretationResponse
 import com.unmsm.habitflow.data.remote.dto.UserDto
 import com.unmsm.habitflow.data.remote.dto.VoiceCommandResponse
+import com.unmsm.habitflow.data.remote.dto.VoiceConversationActionDto
+import com.unmsm.habitflow.data.remote.dto.VoiceConversationResponse
 import com.unmsm.habitflow.domain.model.Achievement
 import com.unmsm.habitflow.domain.model.AppNotification
 import com.unmsm.habitflow.domain.model.Habit
 import com.unmsm.habitflow.domain.model.HabitEvent
+import com.unmsm.habitflow.domain.model.HabitInterpretationResult
 import com.unmsm.habitflow.domain.model.HabitStatus
+import com.unmsm.habitflow.domain.model.InterpretedHabit
 import com.unmsm.habitflow.domain.model.NotificationKind
 import com.unmsm.habitflow.domain.model.CosmeticReward
 import com.unmsm.habitflow.domain.model.PlanRecommendation
@@ -180,6 +185,92 @@ fun VoiceCommandResponse.toDomain() = VoiceCommandResult(
     },
     conversationId = conversationId
 )
+
+fun VoiceConversationResponse.toDomainCommandResult(): VoiceCommandResult {
+    val event = action?.toVoiceEventResult()
+    val plan = dailyPlan?.let {
+        VoicePlanResult(
+            title = "Plan de hoy",
+            summary = it.summary,
+            category = "IA",
+            actions = it.items.map { item ->
+                "${item.suggestedTime} - ${item.habitName}: ${item.reason}"
+            }
+        )
+    } ?: weeklySummary?.let {
+        VoicePlanResult(
+            title = it.headline.ifBlank { "Resumen de tu semana" },
+            summary = it.summary,
+            category = "Progreso",
+            actions = it.highlights + listOfNotNull(it.recommendation.takeIf { text -> text.isNotBlank() })
+        )
+    } ?: adaptiveRecommendation?.let {
+        VoicePlanResult(
+            title = it.title.ifBlank { "Recomendacion adaptativa" },
+            summary = it.message.ifBlank { it.reason },
+            category = "Recomendacion",
+            actions = listOf(it.reason).filter { text -> text.isNotBlank() }
+        )
+    }
+    return VoiceCommandResult(
+        intent = if (event != null) "registrar_habito" else intent,
+        response = assistantMessage,
+        habitId = event?.habitId,
+        habitName = event?.habitName,
+        status = event?.status,
+        quickReplies = suggestions,
+        events = listOfNotNull(event),
+        plan = plan,
+        conversationId = sessionId
+    )
+}
+
+fun HabitInterpretationResponse.toDomain() = HabitInterpretationResult(
+    intent = intent,
+    habits = habits.map {
+        InterpretedHabit(
+            name = it.name,
+            action = it.action,
+            quantity = it.quantity,
+            unit = it.unit,
+            date = it.date,
+            notes = it.notes,
+            existingHabitId = it.existingHabitId
+        )
+    },
+    confidence = confidence,
+    needsConfirmation = needsConfirmation,
+    confirmationMessage = confirmationMessage
+)
+
+private fun VoiceConversationActionDto.toVoiceEventResult(): VoiceEventResult? {
+    val cleanType = type.uppercase()
+    val status = when (cleanType) {
+        "CREATE_HABIT" -> HabitStatus.Pending
+        "COMPLETE_HABIT" -> HabitStatus.Completed
+        "SKIP_HABIT" -> HabitStatus.Skipped
+        else -> return null
+    }
+    val habitName = payload["name"]?.asPayloadString()?.trim()
+        ?: payload["habit_name"]?.asPayloadString()?.trim()
+        ?: return null
+    return VoiceEventResult(
+        habitId = payload["habit_id"]?.asPayloadString()?.takeIf { it.isNotBlank() },
+        habitName = habitName,
+        status = status,
+        quantity = payload["duration_minutes"]?.asPayloadString()?.toDoubleOrNull()
+            ?: payload["quantity"]?.asPayloadString()?.toDoubleOrNull(),
+        unit = payload["unit"]?.asPayloadString() ?: payload["duration_unit"]?.asPayloadString()
+    )
+}
+
+private fun Any.asPayloadString(): String? =
+    when (this) {
+        is String -> this
+        is Number -> this.toString()
+        is Boolean -> this.toString()
+        else -> null
+    }
 
 fun String.toHabitStatus(): HabitStatus =
     when (lowercase()) {

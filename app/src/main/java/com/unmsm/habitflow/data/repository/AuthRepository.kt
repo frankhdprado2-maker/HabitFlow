@@ -16,7 +16,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
+import java.io.EOFException
 import java.io.IOException
+import java.net.SocketTimeoutException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -58,9 +60,16 @@ class AuthRepository @Inject constructor(
 
     suspend fun googleLogin(idToken: String): AppResult<Unit> =
         runNetwork {
+            require(idToken.isNotBlank()) { "Google no devolvio token. Revisa el Web Client ID." }
             val tokens = authApi.loginGoogle(GoogleLoginRequest(idToken))
             tokenManager.save(tokens.accessToken, tokens.refreshToken)
             clearLocalData()
+        }
+
+    suspend fun warmUp(): AppResult<Unit> =
+        runNetwork {
+            authApi.health()
+            Unit
         }
 
     suspend fun me(): AppResult<User> =
@@ -136,17 +145,22 @@ suspend inline fun <T> runNetwork(crossinline block: suspend () -> T): AppResult
 
 fun <T> networkError(error: Throwable): AppResult<T> {
     val message = when (error) {
+        is SocketTimeoutException -> "No pudimos conectar con HabitFlow. Intentalo nuevamente."
+        is EOFException -> "HabitFlow respondio vacio. Intentalo nuevamente."
         is HttpException -> when (error.code()) {
-            400 -> "La cuenta ya existe o la solicitud no es valida."
-            401 -> "Credenciales invalidas o token rechazado."
+            400 -> "La solicitud no fue aceptada. Revisa los datos e intentalo nuevamente."
+            401 -> "Tu sesion fue rechazada. Inicia sesion nuevamente."
+            403 -> "No tienes permiso para completar esta accion."
+            404 -> "No encontramos el servicio de HabitFlow. Revisa la URL configurada."
             422 -> "Email o datos invalidos. Revisa el correo y la contrasena."
             502 -> "El proveedor de transcripcion rechazo el audio o la clave STT."
-            503 -> "Falta configurar STT_API_KEY en Render para transcribir voz."
-            500 -> "El servidor fallo. Revisa las variables en Render."
-            else -> "Error del servidor HTTP ${error.code()}."
+            503 -> "HabitFlow esta iniciando. Intentalo nuevamente en unos segundos."
+            in 500..599 -> "No pudimos conectar con HabitFlow. Intentalo nuevamente."
+            else -> "No pudimos completar la solicitud. Intentalo nuevamente."
         }
-        is IOException -> "No hay conexion con el servidor."
-        else -> error.message ?: "No se pudo completar la operacion"
+        is IOException -> "No pudimos conectar con HabitFlow. Intentalo nuevamente."
+        is IllegalArgumentException -> error.message ?: "No se pudo completar la operacion."
+        else -> "No se pudo completar la operacion."
     }
     return AppResult.Error(message, error)
 }

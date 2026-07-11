@@ -117,7 +117,8 @@ data class VoiceEventResult(
     val habitName: String,
     val status: HabitStatus,
     val quantity: Double? = null,
-    val unit: String? = null
+    val unit: String? = null,
+    val date: String? = null
 )
 
 data class VoicePlanResult(
@@ -125,4 +126,22 @@ data class VoicePlanResult(
     val summary: String,
     val category: String,
     val actions: List<String>
+)
+
+data class InterpretedHabit(
+    val name: String,
+    val action: String,
+    val quantity: Double? = null,
+    val unit: String? = null,
+    val date: String,
+    val notes: String? = null,
+    val existingHabitId: String? = null
+)
+
+data class HabitInterpretationResult(
+    val intent: String,
+    val habits: List<InterpretedHabit>,
+    val confidence: Double,
+    val needsConfirmation: Boolean,
+    val confirmationMessage: String
 )

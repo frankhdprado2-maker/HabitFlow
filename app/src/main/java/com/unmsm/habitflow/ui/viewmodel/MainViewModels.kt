@@ -7,14 +7,20 @@ import com.unmsm.habitflow.data.repository.AuthRepository
 import com.unmsm.habitflow.data.repository.HabitRepository
 import com.unmsm.habitflow.data.repository.SettingsRepository
 import com.unmsm.habitflow.data.repository.VoiceRepository
+import com.unmsm.habitflow.data.toDomainCommandResult
 import com.unmsm.habitflow.domain.model.Habit
+import com.unmsm.habitflow.domain.model.HabitInterpretationResult
 import com.unmsm.habitflow.domain.model.HabitStatus
+import com.unmsm.habitflow.domain.model.InterpretedHabit
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
+import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.ui.state.AchievementsUiState
 import com.unmsm.habitflow.ui.state.EditProfileUiState
+import com.unmsm.habitflow.ui.state.HabitAssociationOptionUi
 import com.unmsm.habitflow.ui.state.HabitDetailUiState
 import com.unmsm.habitflow.ui.state.HistoryUiState
 import com.unmsm.habitflow.ui.state.HomeUiState
+import com.unmsm.habitflow.ui.state.InterpretedHabitUi
 import com.unmsm.habitflow.ui.state.ManualHabitUiState
 import com.unmsm.habitflow.ui.state.NotificationsUiState
 import com.unmsm.habitflow.ui.state.ProfileUiState
@@ -26,8 +32,11 @@ import com.unmsm.habitflow.ui.state.VoiceMessageUi
 import com.unmsm.habitflow.ui.state.VoiceUiState
 import com.unmsm.habitflow.util.AppResult
 import com.unmsm.habitflow.voice.LocalVoiceCommandParser
+import com.unmsm.habitflow.voice.VoiceErrorType
 import com.unmsm.habitflow.voice.VoiceController
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.text.Normalizer
+import java.time.LocalDate
 import java.util.Calendar
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -360,9 +369,9 @@ class VoiceViewModel @Inject constructor(
         speak(greeting)
     }
 
-    fun showError(message: String) = _state.update {
+    fun showError(message: String, type: VoiceErrorType = VoiceErrorType.Unknown) = _state.update {
         it.copy(
-            phase = VoiceAssistantPhase.Error,
+            phase = VoiceAssistantPhase.Error(type, message),
             listening = false,
             recording = false,
             transcribing = false,
@@ -374,11 +383,15 @@ class VoiceViewModel @Inject constructor(
     fun toggleRecording() {
         when (state.value.phase) {
             VoiceAssistantPhase.Listening,
-            VoiceAssistantPhase.PartialResult -> stopListeningAndUsePartial()
+            is VoiceAssistantPhase.PartialResult -> stopListeningAndUsePartial()
             VoiceAssistantPhase.Processing,
             VoiceAssistantPhase.Speaking -> Unit
             else -> startListening()
         }
+    }
+
+    fun requestMicrophonePermission() {
+        _state.update { it.copy(phase = VoiceAssistantPhase.RequestingPermission, error = null) }
     }
 
     fun cancelListening() {
@@ -397,14 +410,17 @@ class VoiceViewModel @Inject constructor(
 
     private fun startListening() {
         if (!voiceController.isSpeechRecognitionAvailable()) {
-            showError("El reconocimiento de voz no está disponible. Puedes escribir o registrar manualmente.")
+            showError(
+                "El reconocimiento de voz no esta disponible. Puedes escribir o registrar manualmente.",
+                VoiceErrorType.ServiceUnavailable
+            )
             return
         }
         val result = voiceController.startListening(
             onPartial = { partial ->
                 _state.update {
                     it.copy(
-                        phase = VoiceAssistantPhase.PartialResult,
+                        phase = VoiceAssistantPhase.PartialResult(partial),
                         partialTranscript = partial,
                         transcript = partial,
                         listening = true,
@@ -417,16 +433,15 @@ class VoiceViewModel @Inject constructor(
                 _state.update { it.copy(partialTranscript = "", listening = false, recording = false) }
                 sendText(finalText)
             },
-            onError = { message ->
+            onError = { recognitionError ->
                 _state.update {
                     it.copy(
-                        phase = VoiceAssistantPhase.Error,
+                        phase = VoiceAssistantPhase.Error(recognitionError.type, recognitionError.message),
                         listening = false,
                         recording = false,
                         partialTranscript = "",
                         response = "",
-                        messages = it.messages + VoiceMessageUi("assistant", message),
-                        error = message
+                        error = recognitionError.message
                     )
                 }
             }
@@ -446,13 +461,14 @@ class VoiceViewModel @Inject constructor(
                 }
             },
             onFailure = { error ->
+                val message = error.message ?: "No pude iniciar el microfono."
                 _state.update {
                     it.copy(
-                        phase = VoiceAssistantPhase.Error,
+                        phase = VoiceAssistantPhase.Error(VoiceErrorType.ServiceUnavailable, message),
                         listening = false,
                         recording = false,
                         transcribing = false,
-                        error = error.message ?: "No pude iniciar el micrófono."
+                        error = message
                     )
                 }
             }
@@ -473,14 +489,16 @@ class VoiceViewModel @Inject constructor(
     fun sendText(text: String) {
         val clean = text.trim()
         if (clean.isBlank()) return
-        if (pendingResult != null) {
+        val currentState = state.value
+        if (currentState.phase == VoiceAssistantPhase.Processing || currentState.savingInterpretation) return
+        if (state.value.interpretedHabits.isNotEmpty()) {
             when {
                 LocalVoiceCommandParser.isAffirmative(clean) -> {
-                    confirmPendingAction()
+                    confirmInterpretedHabits()
                     return
                 }
                 LocalVoiceCommandParser.isNegativeOrCorrection(clean) -> {
-                    cancelPendingAction("De acuerdo. Dime la corrección o registra el hábito manualmente.")
+                    cancelInterpretedHabits("De acuerdo. No guardé nada; puedes corregir la transcripción.")
                     return
                 }
             }
@@ -493,27 +511,159 @@ class VoiceViewModel @Inject constructor(
                 transcribing = false,
                 transcript = clean,
                 partialTranscript = "",
-                response = "Procesando...",
+                response = "Interpretando tu hábito...",
                 messages = it.messages + VoiceMessageUi("user", clean),
                 quickReplies = emptyList(),
+                pendingSummary = null,
+                interpretationText = "",
+                interpretedHabits = emptyList(),
+                interpretationConfidence = 0.0,
+                savingInterpretation = false,
                 error = null
             )
         }
         viewModelScope.launch {
             val habits = habitRepository.activeHabits()
-            val recentEvents = habitRepository.recentEvents()
-            val achievements = habitRepository.achievementsSnapshot()
-            val categories = habits.map { it.category }.filter { it.isNotBlank() }.distinct()
-            val conversationId = state.value.conversationId
-            when (val result = voiceRepository.command(clean, habits, recentEvents, achievements, categories, conversationId)) {
+            when (val result = voiceRepository.interpretHabit(text = clean, timezone = "America/Lima")) {
                 is AppResult.Success -> {
-                    handleVoiceResult(result.data, localMode = false)
+                    handleHabitInterpretation(
+                        text = clean,
+                        result = result.data,
+                        existingHabits = habits
+                    )
                 }
                 is AppResult.Error -> {
-                    val local = LocalVoiceCommandParser.parse(clean, habits)
-                    handleVoiceResult(local, localMode = true)
+                    val message = if (result.message.contains("conectar", ignoreCase = true)) {
+                        "La interpretación inteligente necesita conexión. Conservé tu texto para reintentar."
+                    } else {
+                        "No se pudo interpretar el hábito. ${result.message}"
+                    }
+                    showError(message, VoiceErrorType.Network)
                 }
             }
+        }
+    }
+
+    fun updateInterpretedHabit(index: Int, field: String, value: String) {
+        _state.update { current ->
+            current.copy(
+                interpretedHabits = current.interpretedHabits.mapIndexed { itemIndex, item ->
+                    if (itemIndex != index) {
+                        item
+                    } else {
+                        when (field) {
+                            "name" -> item.copy(name = value)
+                            "quantity" -> item.copy(quantity = value)
+                            "unit" -> item.copy(unit = value)
+                            "date" -> item.copy(date = value)
+                            "notes" -> item.copy(notes = value)
+                            "action" -> item.copy(action = value)
+                            else -> item
+                        }
+                    }
+                },
+                error = null
+            )
+        }
+    }
+
+    fun updateInterpretedHabitAssociation(index: Int, habitId: String?) {
+        _state.update { current ->
+            val selected = current.habitAssociationOptions.firstOrNull { it.id == habitId }
+            current.copy(
+                interpretedHabits = current.interpretedHabits.mapIndexed { itemIndex, item ->
+                    if (itemIndex != index) {
+                        item
+                    } else {
+                        item.copy(
+                            name = selected?.name ?: item.name,
+                            existingHabitId = selected?.id,
+                            existingHabitName = selected?.name
+                        )
+                    }
+                },
+                error = null
+            )
+        }
+    }
+
+    fun confirmInterpretedHabits() {
+        val current = state.value
+        if (current.savingInterpretation || current.interpretedHabits.isEmpty()) return
+        val validationError = validateInterpretedHabits(current.interpretedHabits)
+        if (validationError != null) {
+            _state.update { it.copy(error = validationError) }
+            return
+        }
+        val events = current.interpretedHabits.map { item ->
+            VoiceEventResult(
+                habitId = item.existingHabitId,
+                habitName = item.name.trim(),
+                status = item.action.toHabitStatusFromInterpretation(),
+                quantity = item.quantity.replace(",", ".").toDoubleOrNull(),
+                unit = item.unit.trim().takeIf { it.isNotBlank() },
+                date = item.date.trim()
+            )
+        }
+        val command = VoiceCommandResult(
+            intent = "registrar_habito",
+            response = current.pendingSummary.orEmpty(),
+            events = events
+        )
+
+        viewModelScope.launch {
+            _state.update { it.copy(savingInterpretation = true, error = null) }
+            val result = habitRepository.applyVoiceCommand(command)
+            when (result) {
+                is AppResult.Success -> {
+                    val message = registeredMessage(events)
+                    speak(message)
+                    _state.update {
+                        it.copy(
+                            phase = VoiceAssistantPhase.Completed,
+                            response = message,
+                            messages = it.messages + VoiceMessageUi("assistant", message),
+                            quickReplies = listOf("Registrar otro", "Ver progreso"),
+                            pendingSummary = null,
+                            interpretedHabits = emptyList(),
+                            habitAssociationOptions = emptyList(),
+                            savingInterpretation = false,
+                            error = null
+                        )
+                    }
+                }
+                is AppResult.Error -> _state.update {
+                    it.copy(
+                        phase = VoiceAssistantPhase.AwaitingConfirmation,
+                        savingInterpretation = false,
+                        error = "No se pudieron guardar todos los hábitos: ${result.message}"
+                    )
+                }
+                null -> _state.update {
+                    it.copy(
+                        phase = VoiceAssistantPhase.AwaitingConfirmation,
+                        savingInterpretation = false,
+                        error = "No encontré hábitos válidos para registrar."
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelInterpretedHabits(message: String = "Listo, cancelé la acción. No guardé ningún hábito.") {
+        speak(message)
+        _state.update {
+            it.copy(
+                phase = VoiceAssistantPhase.Idle,
+                response = message,
+                messages = it.messages + VoiceMessageUi("assistant", message),
+                quickReplies = listOf("Intentar de nuevo", "Registrar manualmente"),
+                pendingSummary = null,
+                interpretedHabits = emptyList(),
+                habitAssociationOptions = emptyList(),
+                savingInterpretation = false,
+                error = null
+            )
         }
     }
 
@@ -553,6 +703,71 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
+    private fun handleHabitInterpretation(
+        text: String,
+        result: HabitInterpretationResult,
+        existingHabits: List<Habit>
+    ) {
+        val options = existingHabits
+            .sortedBy { it.name.lowercase(Locale("es", "PE")) }
+            .map { HabitAssociationOptionUi(id = it.id, name = it.name) }
+
+        if (result.intent == "query_habit") {
+            val message = "Detecté una consulta de hábitos. Las consultas inteligentes estarán disponibles posteriormente."
+            speak(message)
+            _state.update {
+                it.copy(
+                    phase = VoiceAssistantPhase.Completed,
+                    response = message,
+                    messages = it.messages + VoiceMessageUi("assistant", message),
+                    quickReplies = listOf("Registrar un hábito", "Ver progreso"),
+                    interpretationText = text,
+                    interpretedHabits = emptyList(),
+                    habitAssociationOptions = options,
+                    interpretationConfidence = result.confidence,
+                    pendingSummary = null,
+                    error = null
+                )
+            }
+            return
+        }
+
+        if (result.habits.isEmpty()) {
+            showError(
+                "No pude identificar un hábito para registrar. Puedes corregir la transcripción e intentarlo otra vez.",
+                VoiceErrorType.NoMatch
+            )
+            return
+        }
+
+        val interpreted = result.habits.map { habit ->
+            habit.toEditableHabit(existingHabits)
+        }
+        val summary = result.confirmationMessage.ifBlank {
+            if (interpreted.size == 1) {
+                "Revisa el hábito antes de guardarlo."
+            } else {
+                "Revisa estos ${interpreted.size} hábitos antes de guardarlos."
+            }
+        }
+        speak(summary)
+        _state.update {
+            it.copy(
+                phase = VoiceAssistantPhase.AwaitingConfirmation,
+                response = summary,
+                messages = it.messages + VoiceMessageUi("assistant", summary),
+                quickReplies = listOf("Confirmar", "Corregir", "Cancelar"),
+                pendingSummary = summary,
+                interpretationText = text,
+                interpretedHabits = interpreted,
+                habitAssociationOptions = options,
+                interpretationConfidence = result.confidence,
+                savingInterpretation = false,
+                error = null
+            )
+        }
+    }
+
     private suspend fun handleVoiceResult(result: VoiceCommandResult, localMode: Boolean) {
         if (result.events.isNotEmpty()) {
             val summary = confirmationSummary(result)
@@ -574,7 +789,7 @@ class VoiceViewModel @Inject constructor(
 
         result.plan?.let { habitRepository.savePlanRecommendation(it) }
         val message = if (localMode && result.intent != "aclaracion") {
-            "Modo local: ${result.response}"
+            "Estoy usando el modo sin conexion. ${result.response}"
         } else {
             result.response
         }
@@ -685,3 +900,71 @@ private fun firstName(value: String): String {
 
 private fun formatQuantity(value: Double): String =
     if (value % 1.0 == 0.0) value.toInt().toString() else "%.1f".format(Locale.US, value)
+
+private fun InterpretedHabit.toEditableHabit(existingHabits: List<Habit>): InterpretedHabitUi {
+    val matchedHabit = existingHabitId
+        ?.let { id -> existingHabits.firstOrNull { it.id == id } }
+        ?: bestHabitMatch(name, existingHabits)
+    return InterpretedHabitUi(
+        name = matchedHabit?.name ?: name,
+        action = action.ifBlank { "unknown" },
+        quantity = quantity?.let(::formatQuantity).orEmpty(),
+        unit = unit.orEmpty(),
+        date = date,
+        notes = notes.orEmpty(),
+        existingHabitId = matchedHabit?.id,
+        existingHabitName = matchedHabit?.name
+    )
+}
+
+private fun bestHabitMatch(name: String, habits: List<Habit>): Habit? {
+    val target = normalizeForMatch(name)
+    if (target.isBlank()) return null
+    return habits.firstOrNull { normalizeForMatch(it.name) == target }
+        ?: habits.firstOrNull { habit ->
+            val candidate = normalizeForMatch(habit.name)
+            target in candidate || candidate in target
+        }
+        ?: habits.firstOrNull { habit ->
+            val targetTokens = target.split(" ").filter { it.length > 2 }.toSet()
+            val candidateTokens = normalizeForMatch(habit.name).split(" ").filter { it.length > 2 }.toSet()
+            targetTokens.isNotEmpty() && targetTokens.intersect(candidateTokens).size >= 2
+        }
+}
+
+private fun normalizeForMatch(value: String): String =
+    Normalizer.normalize(value.lowercase(Locale("es", "PE")), Normalizer.Form.NFD)
+        .replace(Regex("\\p{Mn}+"), "")
+        .replace(Regex("[^a-z0-9 ]"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+
+private fun String.toHabitStatusFromInterpretation(): HabitStatus =
+    when (lowercase(Locale("es", "PE")).trim()) {
+        "completed" -> HabitStatus.Completed
+        "planned", "created", "unknown" -> HabitStatus.Pending
+        else -> HabitStatus.Pending
+    }
+
+private fun validateInterpretedHabits(items: List<InterpretedHabitUi>): String? {
+    items.forEach { item ->
+        if (item.name.trim().length < 2) return "Cada hábito necesita un nombre."
+        val quantity = item.quantity.trim().replace(",", ".")
+        if (quantity.isNotBlank() && (quantity.toDoubleOrNull() == null || quantity.toDouble() <= 0.0)) {
+            return "La cantidad debe ser positiva."
+        }
+        if (runCatching { LocalDate.parse(item.date.trim()) }.isFailure) {
+            return "La fecha debe tener formato YYYY-MM-DD."
+        }
+    }
+    return null
+}
+
+private fun registeredMessage(events: List<VoiceEventResult>): String {
+    val names = events.map { it.habitName }.distinct()
+    return if (names.size == 1) {
+        "Listo. Registré ${names.first()}."
+    } else {
+        "Listo. Registré ${names.size} hábitos: ${names.take(3).joinToString(", ")}."
+    }
+}

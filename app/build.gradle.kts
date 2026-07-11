@@ -33,11 +33,6 @@ android {
         )
         buildConfigField(
             "String",
-            "AI_API_KEY",
-            "\"${localProps.getProperty("AI_API_KEY", "")}\""
-        )
-        buildConfigField(
-            "String",
             "GOOGLE_WEB_CLIENT_ID",
             "\"${localProps.getProperty("GOOGLE_WEB_CLIENT_ID", "")}\""
         )

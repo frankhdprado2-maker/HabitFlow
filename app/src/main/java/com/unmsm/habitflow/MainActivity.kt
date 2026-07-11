@@ -11,6 +11,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import com.unmsm.habitflow.ui.navigation.HabitFlowApp
 import com.unmsm.habitflow.ui.theme.HabitFlowTheme
 import com.unmsm.habitflow.ui.viewmodel.ThemeViewModel
+import kotlin.getValue
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {

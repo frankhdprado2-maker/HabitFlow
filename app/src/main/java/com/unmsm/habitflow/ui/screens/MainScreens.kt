@@ -1,7 +1,13 @@
 package com.unmsm.habitflow.ui.screens
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -37,11 +43,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +59,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.ui.components.ClayCard
 import com.unmsm.habitflow.ui.components.HabitFlowAvatar
@@ -70,6 +81,8 @@ import com.unmsm.habitflow.ui.components.HabitFlowVoiceOrb
 import com.unmsm.habitflow.ui.components.ProgressBar
 import com.unmsm.habitflow.ui.components.StatusBadge
 import com.unmsm.habitflow.ui.state.VoiceAssistantPhase
+import com.unmsm.habitflow.ui.state.HabitAssociationOptionUi
+import com.unmsm.habitflow.ui.state.InterpretedHabitUi
 import com.unmsm.habitflow.ui.theme.HabitFlowAccent
 import com.unmsm.habitflow.ui.theme.HabitFlowShapes
 import com.unmsm.habitflow.ui.viewmodel.AchievementsViewModel
@@ -83,6 +96,8 @@ import com.unmsm.habitflow.ui.viewmodel.ProfileViewModel
 import com.unmsm.habitflow.ui.viewmodel.SettingsViewModel
 import com.unmsm.habitflow.ui.viewmodel.StatsViewModel
 import com.unmsm.habitflow.ui.viewmodel.VoiceViewModel
+import com.unmsm.habitflow.voice.VoiceErrorType
+import androidx.core.app.ActivityCompat
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -619,15 +634,62 @@ fun VoiceScreen(
     viewModel: VoiceViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    var typedText by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) { viewModel.startConversation() }
     val context = LocalContext.current
+    val lifecycleOwner = remember(context) { context.findActivity() as? LifecycleOwner }
+    var typedText by rememberSaveable { mutableStateOf("") }
+    var lastTranscript by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(Unit) { viewModel.startConversation() }
+    LaunchedEffect(state.transcript) {
+        if (state.transcript.isNotBlank() && state.transcript != lastTranscript) {
+            typedText = state.transcript
+            lastTranscript = state.transcript
+        }
+    }
+    DisposableEffect(lifecycleOwner) {
+        val lifecycle = lifecycleOwner?.lifecycle
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                viewModel.cancelListening()
+            }
+        }
+        lifecycle?.addObserver(observer)
+        onDispose {
+            lifecycle?.removeObserver(observer)
+            viewModel.cancelListening()
+        }
+    }
     val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) viewModel.toggleRecording() else viewModel.showError("Activa el permiso de micrófono para dictar por voz.")
+        if (granted) {
+            viewModel.toggleRecording()
+        } else {
+            val activity = context.findActivity()
+            val permanentlyDenied = activity?.let {
+                !ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.RECORD_AUDIO)
+            } ?: false
+            val message = if (permanentlyDenied) {
+                "El permiso de micrófono quedó bloqueado. Ábrelo en ajustes para registrar con voz."
+            } else {
+                "Debes permitir el acceso al micrófono para dictar por voz."
+            }
+            viewModel.showError(message, VoiceErrorType.InsufficientPermissions)
+        }
+    }
+    val openSettings = {
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", context.packageName, null)
+            )
+        )
     }
     val onMicClick = {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        if (granted) viewModel.toggleRecording() else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        if (granted) {
+            viewModel.toggleRecording()
+        } else {
+            viewModel.requestMicrophonePermission()
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     LazyColumn(
@@ -638,11 +700,16 @@ fun VoiceScreen(
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("HabitFlow", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text("Registrar con voz", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text(voiceStatusLabel(state.phase), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "Convertiremos tu voz en texto; solo se enviará la transcripción para interpretarla.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 HabitFlowVoiceOrb(
-                    listening = state.phase == VoiceAssistantPhase.Listening || state.phase == VoiceAssistantPhase.PartialResult,
+                    listening = state.phase == VoiceAssistantPhase.Listening || state.phase is VoiceAssistantPhase.PartialResult,
                     processing = state.phase == VoiceAssistantPhase.Processing,
                     onClick = onMicClick
                 )
@@ -655,10 +722,52 @@ fun VoiceScreen(
                 }
             }
         }
+        if (state.phase == VoiceAssistantPhase.Listening || state.phase is VoiceAssistantPhase.PartialResult) {
+            item {
+                ClayCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Escuchando...", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("Puedes cancelar sin guardar nada.")
+                        }
+                        TextButton(onClick = viewModel::cancelListening) {
+                            Text("Cancelar")
+                        }
+                    }
+                }
+            }
+        }
+        if (state.phase == VoiceAssistantPhase.Processing) {
+            item {
+                ClayCard(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text("Interpretando tu hábito...")
+                    }
+                }
+            }
+        }
         items(state.messages) { message ->
             HabitFlowMessageBubble(author = message.author, text = message.text)
         }
-        if (state.pendingSummary != null) {
+        if (state.interpretedHabits.isNotEmpty()) {
+            item {
+                VoiceInterpretationConfirmationCard(
+                    originalText = state.interpretationText.ifBlank { state.transcript },
+                    habits = state.interpretedHabits,
+                    options = state.habitAssociationOptions,
+                    saving = state.savingInterpretation,
+                    onUpdate = viewModel::updateInterpretedHabit,
+                    onAssociate = viewModel::updateInterpretedHabitAssociation,
+                    onCancel = { viewModel.cancelInterpretedHabits() },
+                    onConfirm = viewModel::confirmInterpretedHabits
+                )
+            }
+        } else if (state.pendingSummary != null) {
             item {
                 ClayCard(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -682,24 +791,145 @@ fun VoiceScreen(
             }
         }
         if (state.error != null) {
-            item { Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error) }
+            item {
+                val permissionError = (state.phase as? VoiceAssistantPhase.Error)?.type == VoiceErrorType.InsufficientPermissions
+                ClayCard(containerColor = MaterialTheme.colorScheme.errorContainer) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.onErrorContainer)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            HabitFlowSecondaryButton("Reintentar", onClick = onMicClick, modifier = Modifier.weight(1f))
+                            HabitFlowSecondaryButton(
+                                "Escribir",
+                                onClick = { typedText = state.partialTranscript.ifBlank { state.transcript } },
+                                modifier = Modifier.weight(1f)
+                            )
+                            HabitFlowSecondaryButton("Manual", onClick = onManual, modifier = Modifier.weight(1f))
+                        }
+                        if (permissionError) {
+                            HabitFlowSecondaryButton("Abrir ajustes", onClick = openSettings)
+                        }
+                    }
+                }
+            }
         }
         item {
             ClayCard {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HabitFlowOutlinedField(typedText, "Escribir al asistente", { typedText = it }, singleLine = false)
+                    HabitFlowOutlinedField(typedText, "Transcripción editable o texto manual", { typedText = it }, singleLine = false)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         HabitFlowSecondaryButton("Manual", onManual, modifier = Modifier.weight(1f))
                         HabitFlowPrimaryButton(
                             "Enviar",
                             onClick = {
                                 viewModel.sendText(typedText)
-                                typedText = ""
+                                if (typedText.isNotBlank()) typedText = ""
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            enabled = typedText.isNotBlank() &&
+                                state.phase != VoiceAssistantPhase.Processing &&
+                                !state.savingInterpretation
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoiceInterpretationConfirmationCard(
+    originalText: String,
+    habits: List<InterpretedHabitUi>,
+    options: List<HabitAssociationOptionUi>,
+    saving: Boolean,
+    onUpdate: (Int, String, String) -> Unit,
+    onAssociate: (Int, String?) -> Unit,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    ClayCard(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Revisa antes de guardar", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (originalText.isNotBlank()) {
+                Text("Texto original", style = MaterialTheme.typography.labelLarge)
+                Text(originalText, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            habits.forEachIndexed { index, habit ->
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(HabitFlowShapes.Medium))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.52f))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Hábito ${index + 1}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    HabitFlowOutlinedField(habit.name, "Nombre", { onUpdate(index, "name", it) })
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(
+                            listOf(
+                                "completed" to "Completado",
+                                "planned" to "Planeado",
+                                "created" to "Crear",
+                                "unknown" to "Pendiente"
+                            )
+                        ) { (value, label) ->
+                            HabitFlowCategoryChip(
+                                label = label,
+                                selected = habit.action == value,
+                                onClick = { onUpdate(index, "action", value) }
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HabitFlowOutlinedField(
+                            value = habit.quantity,
+                            label = "Cantidad",
+                            onValueChange = { onUpdate(index, "quantity", it) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        HabitFlowOutlinedField(
+                            value = habit.unit,
+                            label = "Unidad",
+                            onValueChange = { onUpdate(index, "unit", it) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    HabitFlowOutlinedField(habit.date, "Fecha (YYYY-MM-DD)", { onUpdate(index, "date", it) })
+                    HabitFlowOutlinedField(habit.notes, "Notas", { onUpdate(index, "notes", it) }, singleLine = false)
+                    Text(
+                        habit.existingHabitName?.let { "Relacionado con: $it" }
+                            ?: "Se creará un hábito nuevo si no existe.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            HabitFlowCategoryChip(
+                                label = "Nuevo",
+                                selected = habit.existingHabitId == null,
+                                onClick = { onAssociate(index, null) }
+                            )
+                        }
+                        items(options.take(12)) { option ->
+                            HabitFlowCategoryChip(
+                                label = option.name,
+                                selected = habit.existingHabitId == option.id,
+                                onClick = { onAssociate(index, option.id) }
+                            )
+                        }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                HabitFlowSecondaryButton("Cancelar", onCancel, modifier = Modifier.weight(1f), enabled = !saving)
+                HabitFlowPrimaryButton(
+                    "Confirmar y registrar",
+                    onConfirm,
+                    modifier = Modifier.weight(1f),
+                    loading = saving,
+                    icon = Icons.Default.Check
+                )
             }
         }
     }
@@ -784,10 +1014,17 @@ private fun voiceStatusLabel(phase: VoiceAssistantPhase): String =
         VoiceAssistantPhase.Idle -> "Listo para escuchar"
         VoiceAssistantPhase.RequestingPermission -> "Solicitando permiso"
         VoiceAssistantPhase.Listening -> "Escuchando"
-        VoiceAssistantPhase.PartialResult -> "Transcribiendo en vivo"
+        is VoiceAssistantPhase.PartialResult -> "Transcribiendo en vivo"
         VoiceAssistantPhase.Processing -> "Pensando"
         VoiceAssistantPhase.AwaitingConfirmation -> "Confirmando"
         VoiceAssistantPhase.Speaking -> "Respondiendo"
         VoiceAssistantPhase.Completed -> "Listo"
-        VoiceAssistantPhase.Error -> "Necesita atención"
+        is VoiceAssistantPhase.Error -> "Necesita atencion"
+    }
+
+private tailrec fun Context.findActivity(): Activity? =
+    when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
     }

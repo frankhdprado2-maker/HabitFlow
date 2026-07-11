@@ -80,7 +80,7 @@ Ahí se crean:
 - Base de datos Room `HabitFlowDatabase`.
 - DAOs para hábitos, eventos, logros y notificaciones.
 
-También lee `BASE_URL`, `AI_API_KEY` y `GOOGLE_WEB_CLIENT_ID` desde `local.properties`, definidos como `BuildConfig`.
+También lee `BASE_URL` y `GOOGLE_WEB_CLIENT_ID` desde `local.properties`, definidos como `BuildConfig`. Las claves de IA viven solo en el backend.
 
 ## Modelo De Datos
 Los modelos principales están en [Models.kt](app/src/main/java/com/unmsm/habitflow/domain/model/Models.kt).

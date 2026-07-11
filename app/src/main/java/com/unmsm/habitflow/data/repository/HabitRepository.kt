@@ -23,6 +23,8 @@ import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.domain.model.VoicePlanResult
 import com.unmsm.habitflow.util.AppResult
 import kotlin.math.max
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -154,7 +156,7 @@ class HabitRepository @Inject constructor(
                     category = "Voz"
                 ).also { habitDao.upsert(it.toEntity()) }
 
-            lastResult = markHabit(habit, event.status, voiceNote(event))
+            lastResult = markHabit(habit, event.status, voiceNote(event), event.eventTimestamp())
         }
         return lastResult
     }
@@ -169,13 +171,18 @@ class HabitRepository @Inject constructor(
         }
     }
 
-    suspend fun markHabit(habit: Habit, status: HabitStatus, note: String = ""): AppResult<HabitEvent> {
+    suspend fun markHabit(
+        habit: Habit,
+        status: HabitStatus,
+        note: String = "",
+        timestamp: Long = System.currentTimeMillis()
+    ): AppResult<HabitEvent> {
         val event = HabitEvent(
             id = UUID.randomUUID().toString(),
             habitId = habit.id,
             habitName = habit.name,
             status = status,
-            timestamp = System.currentTimeMillis(),
+            timestamp = timestamp,
             note = note,
             synced = false
         )
@@ -238,3 +245,11 @@ class HabitRepository @Inject constructor(
             eventDao.upsertAll(remoteEvents)
         }
 }
+
+private fun VoiceEventResult.eventTimestamp(): Long =
+    date
+        ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        ?.atStartOfDay(ZoneId.of("America/Lima"))
+        ?.toInstant()
+        ?.toEpochMilli()
+        ?: System.currentTimeMillis()

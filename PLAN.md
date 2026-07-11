@@ -282,3 +282,114 @@ Status:
 - Ready to create the Android OAuth client with package `com.unmsm.habitflow` and the debug SHA-1 above when the workflow is allowed to continue.
 - Release SHA was not inferred or generated; a release signing config/keystore would produce a different OAuth fingerprint.
 - Debug keystore was not changed.
+
+## AI, Google login, voice, and insets stabilization
+
+Date: 2026-07-10.
+
+Phase 1 audit and initial validation:
+
+- Initial Git status before this pass was not clean: `.idea/misc.xml` and `app/src/main/java/com/unmsm/habitflow/MainActivity.kt` were already modified.
+- Initial commands executed: `git status`, `git diff`, `git log -1 --oneline`.
+- Initial validation passed: `.\gradlew.bat test`, `.\gradlew.bat assembleDebug`, and from `backend`, `uv run pytest`.
+- Root cause: Google login used a broad `loading` boolean and split Credential Manager from backend/profile loading, so errors and cancellations were not represented as typed terminal states.
+- Root cause: bottom navigation was rendered without applying Scaffold `innerPadding` to `NavHost`, and the custom navigation bar forced a fixed height instead of using Material navigation bar insets.
+- Root cause: SpeechRecognizer always requested offline preference when API allowed it, even when on-device recognition was not actually available; errors were string-only and rendered more than once.
+- Root cause: the conversational endpoint existed but Android still used `/ai/voice-command` as the primary assistant path.
+
+Phase 2 Google login:
+
+- Added typed `GoogleLoginState`: `Idle`, `OpeningGoogle`, `ContactingBackend`, `LoadingProfile`, `Success`, and `Error`.
+- Login starts only from the Google button click; duplicate clicks are ignored while Google flow is active.
+- Credential Manager cancellation, missing credentials, parsing failure, generic credential failure, blank token, backend failures, timeout, empty response, and profile-loading failure all return to a recoverable UI state.
+- Google button is disabled during the flow and exposes `Reintentar` after an error.
+- Non-blocking `GET /health` warm-up runs when Login opens.
+- OkHttp timeouts are now connect 20s, read 30s, write 30s, call 45s.
+- Debug logs are limited to flow milestones and HTTP basics; tokens and secrets are not logged.
+
+Phase 3 WindowInsets and FAB:
+
+- Main navigation now uses one `Scaffold` with `contentWindowInsets = WindowInsets.safeDrawing`.
+- `NavHost` consumes `innerPadding`; screens receive zero local Scaffold padding to avoid double padding.
+- Bottom navigation remains in `bottomBar`, mic remains in `floatingActionButton`.
+- Custom navigation bar no longer forces a fixed height and uses `NavigationBarDefaults.windowInsets`.
+- Existing list bottom content padding remains to keep content clear of bottom bar and FAB.
+
+Phase 4 and 11 voice:
+
+- Replaced enum-like voice phase with sealed `VoiceAssistantPhase`, including typed `PartialResult(text)` and `Error(type, message)`.
+- Added `VoiceErrorType` and `VoiceRecognitionError`.
+- SpeechRecognizer now checks service availability and on-device availability separately.
+- Offline recognizer is used only when on-device recognition is available; otherwise system recognition is used without forcing offline preference.
+- Recognizer errors map to user-safe messages for audio, client, permission, network, timeout, no match, busy, server, speech timeout, too many requests, service unavailable, and unknown.
+- Voice UI displays a single error component with `Reintentar`, `Escribir`, and `Manual`.
+- Manual text input remains always available.
+- Text sent to parser/backend is only the recognized or typed text; user name is not concatenated with transcript.
+
+Phases 5 to 10 AI product functionality:
+
+- Android primary assistant call now uses `/ai/conversation`; `/ai/voice-command` remains implemented for compatibility.
+- Android sends structured context: habits, recent events, achievements, categories, preferred time, and duration when locally available.
+- Backend `/ai/conversation` now supports typed intents for daily plan, weekly summary, adaptive recommendation, rescheduling, confirm/reject/cancel extensions, and the existing create/complete/skip/query flow.
+- Added typed backend response models for `daily_plan`, `weekly_summary`, and `adaptive_recommendation`.
+- `Plan de hoy` uses real pending habits, completed/skipped events for today, preferred time, and duration when available.
+- Weekly summary calculates deterministic metrics before producing text; no LLM computes numbers.
+- Adaptive recommendations use rules for repeated skips and strong recent completion.
+- Rescheduling distinguishes one-time options from permanent changes through suggestions; no habit is modified without confirmation.
+- Offline fallback remains local parser based and announces: `Estoy usando el modo sin conexion.`
+
+Security and privacy:
+
+- Android continues to send Google ID token only to FastAPI auth, never to the AI endpoint.
+- Assistant context does not include access token, refresh token, Google ID token, passwords, secrets, or raw audio.
+- Diff scan found no sensitive paths in versioned changes and no high-risk added secret lines.
+- AI actions are mapped into typed models and still require explicit Android confirmation before local execution.
+
+Files modified in this pass:
+
+- Android: `AuthScreens.kt`, `AuthViewModels.kt`, `UiStates.kt`, `AppNavigation.kt`, `HabitFlowComponents.kt`, `MainScreens.kt`, `MainViewModels.kt`, `VoiceController.kt`, `VoiceRecognitionError.kt`, `AuthApi.kt`, `AuthRepository.kt`, `VoiceRepository.kt`, `VoiceDtos.kt`, `Mappers.kt`, `AppModule.kt`, `UiStateTest.kt`.
+- Backend: `backend/src/app/projects/c21200065/api/ai.py`, `backend/tests/test_ai_conversation_features.py`.
+- Pre-existing local changes still present: `.idea/misc.xml`, `MainActivity.kt`.
+
+Automated verification after fixes:
+
+- Passed: `.\gradlew.bat test`.
+- Passed: `.\gradlew.bat lint`.
+- Passed: `.\gradlew.bat assembleDebug`.
+- Passed: from `backend`, `uv run pytest` (`16 passed`).
+- Passed: from `backend`, `uv run ruff check src/app/projects/c21200065/api/ai.py tests/test_ai_conversation_features.py`.
+- Passed: TestClient `GET /health` -> 200.
+- Passed: TestClient `GET /docs` -> 200.
+- Passed: TestClient `POST /c21200065/ai/conversation` with auth override -> 200 and intent `GENERATE_DAILY_PLAN`.
+- Expected security check: `POST /c21200065/ai/conversation` without auth returned 401.
+
+Manual verification matrix:
+
+- Login Google cancelado: Not executed; requires device/emulator Credential Manager UI.
+- Login Google exitoso: Blocked; requires real configured OAuth client and device/emulator.
+- Render despertando: Not executed against live Render; timeout and warm-up handling implemented locally.
+- Timeout backend: Not executed against live network; OkHttp and repository timeout mapping implemented.
+- Usuario nuevo to onboarding: Not executed on device.
+- Usuario recurrente to Home: Not executed on device.
+- Barra de navegacion con tres botones: Not executed on device.
+- Barra con navegacion por gestos: Not executed on device.
+- FAB sin tapar contenido: Not executed visually on device.
+- Permiso de microfono rechazado: Not executed on device.
+- Permiso aceptado: Not executed on device.
+- SpeechRecognizer disponible: Not executed on device.
+- SpeechRecognizer no disponible: Not executed on device.
+- Entrada manual: Not executed manually; code path remains present and compiles.
+- Conversacion para crear habito: Backend/domain coverage passed; Android manual flow not executed.
+- Confirmacion: Android confirmation path compiles and previous parser tests cover confirmation data; manual UI not executed.
+- Plan diario: Backend smoke and tests passed.
+- Resumen semanal: Backend tests passed.
+- Recomendacion adaptativa: Backend tests passed.
+- Modo offline: Local parser tests passed; network-off manual device test not executed.
+
+Pending debt:
+
+- Full Google sign-in must still be verified on a real emulator/device with the configured Web OAuth client.
+- Visual insets/FAB behavior must still be checked on small phone, gesture navigation, and three-button navigation.
+- SpeechRecognizer behavior must still be checked on devices with and without recognition services.
+- Adaptive recommendation accept/edit/reject persistence is not yet tracked as a durable user preference.
+- Release OAuth SHA remains separate from debug and was not generated here.

@@ -4,6 +4,8 @@ import com.unmsm.habitflow.data.remote.dto.VoiceCommandRequest
 import com.unmsm.habitflow.data.remote.dto.VoiceCommandResponse
 import com.unmsm.habitflow.data.remote.dto.VoiceConversationRequest
 import com.unmsm.habitflow.data.remote.dto.VoiceConversationResponse
+import com.unmsm.habitflow.data.remote.dto.HabitInterpretationRequest
+import com.unmsm.habitflow.data.remote.dto.HabitInterpretationResponse
 import com.unmsm.habitflow.data.remote.dto.VoiceTranscriptionResponse
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
@@ -18,6 +20,9 @@ interface VoiceApi {
 
     @POST("ai/conversation")
     suspend fun conversation(@Body request: VoiceConversationRequest): VoiceConversationResponse
+
+    @POST("ai/interpret-habit")
+    suspend fun interpretHabit(@Body request: HabitInterpretationRequest): HabitInterpretationResponse
 
     @Multipart
     @POST("ai/transcribe")

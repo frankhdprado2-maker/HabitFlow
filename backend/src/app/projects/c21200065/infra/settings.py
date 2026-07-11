@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     STT_BASE_URL: str = "https://api.openai.com/v1"
     STT_API_KEY: str = ""
     STT_MODEL: str = "whisper-1"
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-3.1-flash-lite"
 
     # Seed
     SEED_ADMIN_EMAIL: str

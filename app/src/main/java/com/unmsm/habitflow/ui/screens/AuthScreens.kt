@@ -1,6 +1,7 @@
 package com.unmsm.habitflow.ui.screens
 
 import android.content.Context
+import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
@@ -80,6 +81,7 @@ import com.unmsm.habitflow.ui.components.HabitFlowOutlinedField
 import com.unmsm.habitflow.ui.components.HabitFlowPrimaryButton
 import com.unmsm.habitflow.ui.components.HabitFlowSecondaryButton
 import com.unmsm.habitflow.ui.components.HabitFlowTextButton
+import com.unmsm.habitflow.ui.state.GoogleLoginState
 import com.unmsm.habitflow.ui.theme.HabitFlowAccent
 import com.unmsm.habitflow.ui.theme.HabitFlowShapes
 import com.unmsm.habitflow.ui.theme.HabitFlowSpacing
@@ -88,6 +90,8 @@ import com.unmsm.habitflow.ui.viewmodel.ProfileSetupViewModel
 import com.unmsm.habitflow.ui.viewmodel.RegisterViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private const val AUTH_TAG = "HabitFlowAuth"
 
 @Composable
 fun SplashScreen(padding: PaddingValues, onDone: suspend () -> Unit) {
@@ -158,9 +162,40 @@ fun LoginScreen(
     val coroutineScope = rememberCoroutineScope()
     val missingWebClientMessage = stringResource(R.string.google_missing_web_client_id)
     var passwordVisible by remember { mutableStateOf(false) }
+    val googleActive = state.googleState.isActive()
+    val googleError = (state.googleState as? GoogleLoginState.Error)?.message
+    val passwordError = if (googleError == null) state.error else null
+
+    fun startGoogleLogin() {
+        val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
+        if (webClientId.isBlank()) {
+            viewModel.showGoogleError(missingWebClientMessage)
+            return
+        }
+        if (!viewModel.beginGoogleOpening()) return
+        coroutineScope.launch {
+            runGoogleCredentialFlow(
+                credentialManager = credentialManager,
+                context = context,
+                webClientId = webClientId,
+                onCredentialReceived = viewModel::markGoogleCredentialReceived,
+                onToken = viewModel::googleLogin,
+                onError = viewModel::showGoogleError
+            )
+        }
+    }
+    LaunchedEffect(Unit) {
+        viewModel.warmUpBackend()
+    }
     LaunchedEffect(state.loggedIn, state.needsProfile) {
-        if (state.needsProfile) onProfileSetup()
-        if (state.loggedIn) onLogin()
+        if (state.needsProfile) {
+            viewModel.resetGoogleFlow()
+            onProfileSetup()
+        }
+        if (state.loggedIn) {
+            viewModel.resetGoogleFlow()
+            onLogin()
+        }
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
@@ -181,7 +216,7 @@ fun LoginScreen(
                     label = "Correo electrónico",
                     onValueChange = viewModel::updateEmail,
                     leadingIcon = Icons.Default.Email,
-                    isError = state.error != null,
+                    isError = passwordError != null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next)
                 )
                 HabitFlowOutlinedField(
@@ -198,14 +233,15 @@ fun LoginScreen(
                         }
                     },
                     visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    isError = state.error != null,
-                    supportingText = state.error,
+                    isError = passwordError != null,
+                    supportingText = passwordError,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { viewModel.login() })
                 )
                 HabitFlowPrimaryButton(
                     label = if (state.loading) "Iniciando..." else "Iniciar sesión",
                     onClick = viewModel::login,
+                    enabled = !googleActive,
                     loading = state.loading
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -214,25 +250,20 @@ fun LoginScreen(
                     Spacer(Modifier.height(1.dp).weight(1f).background(MaterialTheme.colorScheme.outlineVariant))
                 }
                 HabitFlowSecondaryButton(
-                    label = stringResource(R.string.continue_with_google),
-                    onClick = {
-                        val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
-                        if (webClientId.isBlank()) {
-                            viewModel.showError(missingWebClientMessage)
-                            return@HabitFlowSecondaryButton
-                        }
-                        viewModel.beginExternalLogin()
-                        coroutineScope.launch {
-                            runGoogleCredentialFlow(
-                                credentialManager = credentialManager,
-                                context = context,
-                                webClientId = webClientId,
-                                onToken = viewModel::googleLogin,
-                                onError = viewModel::showError
-                            )
+                    label = googleButtonLabel(state.googleState),
+                    onClick = { startGoogleLogin() },
+                    enabled = !state.loading && !googleActive
+                )
+                if (googleError != null) {
+                    HabitFlowCard(containerColor = MaterialTheme.colorScheme.errorContainer) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(googleError, color = MaterialTheme.colorScheme.onErrorContainer)
+                            HabitFlowSecondaryButton("Reintentar", onClick = { startGoogleLogin() })
                         }
                     }
-                )
+                } else if (state.googleState is GoogleLoginState.ContactingBackend || state.googleState is GoogleLoginState.LoadingProfile) {
+                    Text("Conectando con HabitFlow...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = onRecover) { Text("Recuperar contraseña") }
                     TextButton(onClick = onRegister) { Text("Crear cuenta") }
@@ -246,6 +277,7 @@ private suspend fun runGoogleCredentialFlow(
     credentialManager: CredentialManager,
     context: Context,
     webClientId: String,
+    onCredentialReceived: () -> Unit,
     onToken: (String) -> Unit,
     onError: (String) -> Unit
 ) {
@@ -259,6 +291,7 @@ private suspend fun runGoogleCredentialFlow(
         .build()
 
     try {
+        if (BuildConfig.DEBUG) Log.d(AUTH_TAG, "Opening Credential Manager")
         val result = credentialManager.getCredential(context = context, request = request)
         val credential = result.credential
         if (credential !is CustomCredential || credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
@@ -271,6 +304,8 @@ private suspend fun runGoogleCredentialFlow(
             onError("Google no devolvio token. Revisa el Web Client ID.")
             return
         }
+        if (BuildConfig.DEBUG) Log.d(AUTH_TAG, "Google credential obtained")
+        onCredentialReceived()
         onToken(idToken)
     } catch (_: GetCredentialCancellationException) {
         onError("Inicio con Google cancelado.")
@@ -279,11 +314,29 @@ private suspend fun runGoogleCredentialFlow(
     } catch (_: GoogleIdTokenParsingException) {
         onError("Google devolvio un token que no se pudo leer.")
     } catch (error: GetCredentialException) {
-        onError("No se pudo abrir Google (${error.type}).")
+        if (BuildConfig.DEBUG) Log.d(AUTH_TAG, "Credential Manager failed: ${error.type}")
+        onError("No se pudo abrir Google. Intentalo nuevamente.")
     } catch (error: Throwable) {
-        onError("No se pudo iniciar sesion con Google (${error.javaClass.simpleName}).")
+        if (BuildConfig.DEBUG) Log.d(AUTH_TAG, "Credential Manager unexpected failure", error)
+        onError("No se pudo iniciar sesion con Google. Intentalo nuevamente.")
     }
 }
+
+private fun GoogleLoginState.isActive(): Boolean =
+    this is GoogleLoginState.OpeningGoogle ||
+        this is GoogleLoginState.ContactingBackend ||
+        this is GoogleLoginState.LoadingProfile
+
+@Composable
+private fun googleButtonLabel(state: GoogleLoginState): String =
+    when (state) {
+        GoogleLoginState.Idle -> stringResource(R.string.continue_with_google)
+        GoogleLoginState.OpeningGoogle -> "Abriendo Google..."
+        GoogleLoginState.ContactingBackend -> "Conectando..."
+        GoogleLoginState.LoadingProfile -> "Cargando perfil..."
+        GoogleLoginState.Success -> "Listo"
+        is GoogleLoginState.Error -> stringResource(R.string.continue_with_google)
+    }
 
 @Composable
 fun ProfileSetupScreen(

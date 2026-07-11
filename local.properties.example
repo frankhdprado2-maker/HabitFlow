@@ -1,0 +1,16 @@
+# HabitFlow Android local build configuration.
+# Copy to local.properties and adjust local paths/URLs.
+# local.properties is ignored by Git.
+
+# Required by Android Gradle Plugin on local machines.
+sdk.dir=C\:\\Users\\YourUser\\AppData\\Local\\Android\\Sdk
+
+# Public backend URL used by Retrofit. Must end with /c21200065/.
+# Emulator local backend:
+BASE_URL=http://10.0.2.2:8000/c21200065/
+# Render example:
+# BASE_URL=https://your-render-service.onrender.com/c21200065/
+
+# Public Google OAuth Web client ID for Android Credential Manager.
+# This is not a secret, but should match the backend GOOGLE_WEB_CLIENT_ID.
+GOOGLE_WEB_CLIENT_ID=your-web-client-id.apps.googleusercontent.com

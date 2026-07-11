@@ -48,6 +48,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Snackbar
@@ -293,8 +294,9 @@ fun HabitFlowNavigationBar(
     modifier: Modifier = Modifier
 ) {
     NavigationBar(
-        modifier = modifier.height(HabitFlowDimensions.NavigationHeight),
+        modifier = modifier,
         containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        windowInsets = NavigationBarDefaults.windowInsets,
         tonalElevation = 0.dp
     ) {
         items.forEach { item ->

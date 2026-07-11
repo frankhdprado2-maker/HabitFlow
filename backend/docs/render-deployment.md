@@ -24,7 +24,8 @@ Set secrets in the Render dashboard or through `sync: false` Blueprint variables
 | `GOOGLE_CLIENT_ID` | Backward-compatible alias; keep equal to `GOOGLE_WEB_CLIENT_ID` during transition. |
 | `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | OAuth console metadata; Android must not receive the secret. |
 | `OBJECT_STORAGE_*` | R2/S3-compatible storage. |
-| `LLM_*`, `STT_*` | AI and speech-to-text providers. |
+| `LLM_*`, `STT_*` | Legacy/configurable AI and server-side speech-to-text providers. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini habit interpretation endpoint. The key must stay backend-only. |
 | `SEED_ADMIN_*` | Optional seed/admin values used by existing project setup. |
 
 ## PostgreSQL migration strategy

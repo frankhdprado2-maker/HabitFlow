@@ -8,11 +8,22 @@ import com.unmsm.habitflow.domain.model.Habit
 import com.unmsm.habitflow.domain.model.HabitEvent
 import com.unmsm.habitflow.domain.model.PlanRecommendation
 import com.unmsm.habitflow.domain.model.User
+import com.unmsm.habitflow.voice.VoiceErrorType
+
+sealed interface GoogleLoginState {
+    data object Idle : GoogleLoginState
+    data object OpeningGoogle : GoogleLoginState
+    data object ContactingBackend : GoogleLoginState
+    data object LoadingProfile : GoogleLoginState
+    data object Success : GoogleLoginState
+    data class Error(val message: String) : GoogleLoginState
+}
 
 data class LoginUiState(
     val email: String = "",
     val password: String = "",
     val loading: Boolean = false,
+    val googleState: GoogleLoginState = GoogleLoginState.Idle,
     val error: String? = null,
     val loggedIn: Boolean = false,
     val needsProfile: Boolean = false
@@ -131,16 +142,32 @@ data class VoiceMessageUi(
     val text: String
 )
 
-enum class VoiceAssistantPhase {
-    Idle,
-    RequestingPermission,
-    Listening,
-    PartialResult,
-    Processing,
-    AwaitingConfirmation,
-    Speaking,
-    Completed,
-    Error
+data class HabitAssociationOptionUi(
+    val id: String,
+    val name: String
+)
+
+data class InterpretedHabitUi(
+    val name: String,
+    val action: String,
+    val quantity: String = "",
+    val unit: String = "",
+    val date: String = "",
+    val notes: String = "",
+    val existingHabitId: String? = null,
+    val existingHabitName: String? = null
+)
+
+sealed interface VoiceAssistantPhase {
+    data object Idle : VoiceAssistantPhase
+    data object RequestingPermission : VoiceAssistantPhase
+    data object Listening : VoiceAssistantPhase
+    data class PartialResult(val text: String) : VoiceAssistantPhase
+    data object Processing : VoiceAssistantPhase
+    data object AwaitingConfirmation : VoiceAssistantPhase
+    data object Speaking : VoiceAssistantPhase
+    data object Completed : VoiceAssistantPhase
+    data class Error(val type: VoiceErrorType, val message: String) : VoiceAssistantPhase
 }
 
 data class VoiceUiState(
@@ -155,6 +182,11 @@ data class VoiceUiState(
     val quickReplies: List<String> = emptyList(),
     val conversationId: String? = null,
     val pendingSummary: String? = null,
+    val interpretationText: String = "",
+    val interpretedHabits: List<InterpretedHabitUi> = emptyList(),
+    val habitAssociationOptions: List<HabitAssociationOptionUi> = emptyList(),
+    val interpretationConfidence: Double = 0.0,
+    val savingInterpretation: Boolean = false,
     val error: String? = null
 )
 

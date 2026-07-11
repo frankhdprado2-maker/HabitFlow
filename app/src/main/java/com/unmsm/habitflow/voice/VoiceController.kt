@@ -3,8 +3,8 @@ package com.unmsm.habitflow.voice
 import android.content.Context
 import android.content.Intent
 import android.media.MediaRecorder
-import android.os.Bundle
 import android.os.Build
+import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -14,6 +14,9 @@ import java.io.File
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 @Singleton
 class VoiceController @Inject constructor(
@@ -24,68 +27,95 @@ class VoiceController @Inject constructor(
     private var tts: TextToSpeech? = null
     private var speechRecognizer: SpeechRecognizer? = null
     private var listening = false
+    private val _state = MutableStateFlow<VoiceRecognitionState>(VoiceRecognitionState.Idle)
+    val state: StateFlow<VoiceRecognitionState> = _state.asStateFlow()
 
     fun isSpeechRecognitionAvailable(): Boolean = SpeechRecognizer.isRecognitionAvailable(context)
+
+    fun isOnDeviceSpeechRecognitionAvailable(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
 
     fun startListening(
         onPartial: (String) -> Unit,
         onFinal: (String) -> Unit,
-        onError: (String) -> Unit
+        onError: (VoiceRecognitionError) -> Unit
     ): Result<Unit> =
         runCatching {
             if (!isSpeechRecognitionAvailable()) {
-                error("El reconocimiento de voz no está disponible en este dispositivo.")
+                error("El reconocimiento de voz no esta disponible en este dispositivo.")
             }
+            _state.value = VoiceRecognitionState.ProcessingSpeech
             stopSpeaking()
             stopListening()
-            val recognizer = createSpeechRecognizer().also { speechRecognizer = it }
+
+            val preferOffline = isOnDeviceSpeechRecognitionAvailable()
+            val recognizer = createSpeechRecognizer(preferOffline).also { speechRecognizer = it }
             recognizer.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
                     listening = true
+                    _state.value = VoiceRecognitionState.Listening
                 }
 
                 override fun onBeginningOfSpeech() = Unit
                 override fun onRmsChanged(rmsdB: Float) = Unit
                 override fun onBufferReceived(buffer: ByteArray?) = Unit
+
                 override fun onEndOfSpeech() {
                     listening = false
+                    _state.value = VoiceRecognitionState.ProcessingSpeech
                 }
 
                 override fun onError(error: Int) {
                     listening = false
-                    onError(speechErrorMessage(error))
+                    val recognitionError = speechError(error)
+                    releaseSpeechRecognizer()
+                    _state.value = VoiceRecognitionState.Error(recognitionError)
+                    onError(recognitionError)
                 }
 
                 override fun onResults(results: Bundle?) {
                     listening = false
                     val finalText = results.bestSpeechText()
                     if (finalText.isBlank()) {
-                        onError("No pude entender el audio. Intenta nuevamente o escríbelo.")
+                        val recognitionError = VoiceRecognitionError(
+                            VoiceErrorType.NoMatch,
+                            "No pude entenderte. Intentalo nuevamente o escribe el mensaje."
+                        )
+                        releaseSpeechRecognizer()
+                        _state.value = VoiceRecognitionState.Error(recognitionError)
+                        onError(recognitionError)
                     } else {
+                        releaseSpeechRecognizer()
+                        _state.value = VoiceRecognitionState.Result(finalText)
                         onFinal(finalText)
                     }
                 }
 
                 override fun onPartialResults(partialResults: Bundle?) {
                     val partialText = partialResults.bestSpeechText()
-                    if (partialText.isNotBlank()) onPartial(partialText)
+                    if (partialText.isNotBlank()) {
+                        _state.value = VoiceRecognitionState.PartialResult(partialText)
+                        onPartial(partialText)
+                    }
                 }
 
                 override fun onEvent(eventType: Int, params: Bundle?) = Unit
             })
-            recognizer.startListening(recognizerIntent())
+            recognizer.startListening(recognizerIntent(preferOffline))
             listening = true
         }
 
     fun stopListening() {
         runCatching { speechRecognizer?.stopListening() }
         runCatching { speechRecognizer?.cancel() }
-        runCatching { speechRecognizer?.destroy() }
-        speechRecognizer = null
-        listening = false
+        releaseSpeechRecognizer()
+        _state.value = VoiceRecognitionState.Idle
     }
 
-    fun cancelListening() = stopListening()
+    fun cancelListening() {
+        stopListening()
+        _state.value = VoiceRecognitionState.Cancelled
+    }
 
     fun startRecording(): Result<File> =
         runCatching {
@@ -167,6 +197,12 @@ class VoiceController @Inject constructor(
         currentFile = null
     }
 
+    private fun releaseSpeechRecognizer() {
+        runCatching { speechRecognizer?.destroy() }
+        speechRecognizer = null
+        listening = false
+    }
+
     private fun createRecorder(): MediaRecorder =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             MediaRecorder(context)
@@ -175,22 +211,22 @@ class VoiceController @Inject constructor(
             MediaRecorder()
         }
 
-    private fun createSpeechRecognizer(): SpeechRecognizer =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+    private fun createSpeechRecognizer(preferOffline: Boolean): SpeechRecognizer =
+        if (preferOffline && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
         } else {
             SpeechRecognizer.createSpeechRecognizer(context)
         }
 
-    private fun recognizerIntent(): Intent =
+    private fun recognizerIntent(preferOffline: Boolean): Intent =
         Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-PE")
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "es-PE")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Dime qué hábito quieres registrar")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 4)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Dime que habito quieres registrar")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && preferOffline) {
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             }
         }
@@ -201,15 +237,51 @@ class VoiceController @Inject constructor(
             ?.trim()
             .orEmpty()
 
-    private fun speechErrorMessage(error: Int): String =
+    private fun speechError(error: Int): VoiceRecognitionError =
         when (error) {
-            SpeechRecognizer.ERROR_AUDIO -> "No pude acceder al audio. Revisa el micrófono."
-            SpeechRecognizer.ERROR_CLIENT -> "Se canceló la escucha. Intenta nuevamente."
-            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Activa el permiso de micrófono para dictar."
-            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "No hay conexión para reconocer voz. Puedes escribir el hábito."
-            SpeechRecognizer.ERROR_NO_MATCH -> "No pude entender el audio. Intenta nuevamente o escríbelo."
-            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "El micrófono está ocupado. Espera un momento."
-            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No escuché nada. Toca el micrófono cuando estés listo."
-            else -> "El reconocimiento de voz falló. Puedes escribirlo manualmente."
+            SpeechRecognizer.ERROR_AUDIO -> VoiceRecognitionError(
+                VoiceErrorType.Audio,
+                "No pude acceder al audio. Revisa el microfono."
+            )
+            SpeechRecognizer.ERROR_CLIENT -> VoiceRecognitionError(
+                VoiceErrorType.Client,
+                "Se cancelo la escucha. Intenta nuevamente."
+            )
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> VoiceRecognitionError(
+                VoiceErrorType.InsufficientPermissions,
+                "Necesito permiso para usar el microfono."
+            )
+            SpeechRecognizer.ERROR_NETWORK -> VoiceRecognitionError(
+                VoiceErrorType.Network,
+                "El reconocimiento por voz no esta disponible en este momento."
+            )
+            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> VoiceRecognitionError(
+                VoiceErrorType.NetworkTimeout,
+                "El reconocimiento por voz tardo demasiado. Puedes escribir el mensaje."
+            )
+            SpeechRecognizer.ERROR_NO_MATCH -> VoiceRecognitionError(
+                VoiceErrorType.NoMatch,
+                "No pude entenderte. Intentalo nuevamente o escribe el mensaje."
+            )
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> VoiceRecognitionError(
+                VoiceErrorType.RecognizerBusy,
+                "El microfono esta ocupado. Espera un momento e intentalo nuevamente."
+            )
+            SpeechRecognizer.ERROR_SERVER -> VoiceRecognitionError(
+                VoiceErrorType.Server,
+                "El reconocimiento por voz no esta disponible en este momento."
+            )
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> VoiceRecognitionError(
+                VoiceErrorType.SpeechTimeout,
+                "No escuche ninguna frase."
+            )
+            SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> VoiceRecognitionError(
+                VoiceErrorType.TooManyRequests,
+                "El reconocimiento recibio demasiados intentos. Espera un momento."
+            )
+            else -> VoiceRecognitionError(
+                VoiceErrorType.Unknown,
+                "No pude procesar el audio. Intentalo nuevamente o continua manualmente."
+            )
         }
 }

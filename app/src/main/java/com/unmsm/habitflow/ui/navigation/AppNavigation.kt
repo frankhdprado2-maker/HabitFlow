@@ -1,5 +1,10 @@
 package com.unmsm.habitflow.ui.navigation
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.History
@@ -12,8 +17,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -70,6 +77,8 @@ fun HabitFlowApp() {
     val showBottom = bottomItems.any { item -> current?.hierarchy?.any { it.route == item.route.path } == true }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets.safeDrawing,
         containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = {
             if (showBottom) {
@@ -94,10 +103,17 @@ fun HabitFlowApp() {
                 )
             }
         }
-    ) { padding ->
-        NavHost(navController = navController, startDestination = Route.Splash.path) {
+    ) { innerPadding ->
+        val screenPadding = PaddingValues(0.dp)
+        NavHost(
+            navController = navController,
+            startDestination = Route.Splash.path,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
             composable(Route.Splash.path) {
-                SplashScreen(padding) {
+                SplashScreen(screenPadding) {
                     val startRoute = when {
                         !sessionViewModel.isLoggedIn() -> Route.Onboarding.path
                         sessionViewModel.needsProfileSetup() -> Route.ProfileSetup.path
@@ -106,57 +122,57 @@ fun HabitFlowApp() {
                     navController.navigateClearingBackStack(startRoute)
                 }
             }
-            composable(Route.Onboarding.path) { OnboardingScreen(padding, onFinish = { navController.navigate(Route.Login.path) }) }
+            composable(Route.Onboarding.path) { OnboardingScreen(screenPadding, onFinish = { navController.navigate(Route.Login.path) }) }
             composable(Route.Login.path) {
                 LoginScreen(
-                    padding = padding,
+                    padding = screenPadding,
                     onLogin = { navController.navigateClearingBackStack(Route.Home.path) },
                     onProfileSetup = { navController.navigateClearingBackStack(Route.ProfileSetup.path) },
                     onRegister = { navController.navigate(Route.Register.path) },
                     onRecover = { navController.navigate(Route.Recover.path) }
                 )
             }
-            composable(Route.ProfileSetup.path) { ProfileSetupScreen(padding, onDone = { navController.navigateClearingBackStack(Route.Home.path) }) }
-            composable(Route.Register.path) { RegisterScreen(padding, onDone = { navController.navigate(Route.VerifyEmail.path) }) }
-            composable(Route.Recover.path) { RecoverPasswordScreen(padding) { navController.popBackStack() } }
-            composable(Route.VerifyEmail.path) { VerifyEmailScreen(padding) { navController.navigateClearingBackStack(Route.Home.path) } }
+            composable(Route.ProfileSetup.path) { ProfileSetupScreen(screenPadding, onDone = { navController.navigateClearingBackStack(Route.Home.path) }) }
+            composable(Route.Register.path) { RegisterScreen(screenPadding, onDone = { navController.navigate(Route.VerifyEmail.path) }) }
+            composable(Route.Recover.path) { RecoverPasswordScreen(screenPadding) { navController.popBackStack() } }
+            composable(Route.VerifyEmail.path) { VerifyEmailScreen(screenPadding) { navController.navigateClearingBackStack(Route.Home.path) } }
             composable(Route.Home.path) {
                 HomeScreen(
-                    padding = padding,
+                    padding = screenPadding,
                     onHabit = { navController.navigate(Route.HabitDetail.create(it)) },
                     onVoice = { navController.navigate(Route.Voice.path) },
                     onManual = { navController.navigate(Route.ManualHabit.path) },
                     onNotifications = { navController.navigate(Route.Notifications.path) }
                 )
             }
-            composable(Route.HabitDetail.path) { HabitDetailScreen(padding) }
-            composable(Route.Stats.path) { StatsScreen(padding) }
-            composable(Route.History.path) { HistoryScreen(padding) }
-            composable(Route.Notifications.path) { NotificationsScreen(padding) }
+            composable(Route.HabitDetail.path) { HabitDetailScreen(screenPadding) }
+            composable(Route.Stats.path) { StatsScreen(screenPadding) }
+            composable(Route.History.path) { HistoryScreen(screenPadding) }
+            composable(Route.Notifications.path) { NotificationsScreen(screenPadding) }
             composable(Route.Profile.path) {
                 ProfileScreen(
-                    padding = padding,
+                    padding = screenPadding,
                     onEdit = { navController.navigate(Route.EditProfile.path) },
                     onAchievements = { navController.navigate(Route.Achievements.path) },
                     onSettings = { navController.navigate(Route.Settings.path) }
                 )
             }
             composable(Route.EditProfile.path) {
-                EditProfileScreen(padding = padding, onDone = { navController.popBackStack() })
+                EditProfileScreen(padding = screenPadding, onDone = { navController.popBackStack() })
             }
             composable(Route.Settings.path) {
                 SettingsScreen(
-                    padding = padding,
+                    padding = screenPadding,
                     onDelete = { navController.navigate(Route.DeleteAccount.path) },
                     onLogout = {
                         navController.navigateClearingBackStack(Route.Login.path)
                     }
                 )
             }
-            composable(Route.Achievements.path) { AchievementsScreen(padding) }
-            composable(Route.DeleteAccount.path) { DeleteAccountScreen(padding) { navController.popBackStack(Route.Login.path, false) } }
-            composable(Route.Voice.path) { VoiceScreen(padding, onManual = { navController.navigate(Route.ManualHabit.path) }) }
-            composable(Route.ManualHabit.path) { ManualHabitScreen(padding, onDone = { navController.popBackStack() }) }
+            composable(Route.Achievements.path) { AchievementsScreen(screenPadding) }
+            composable(Route.DeleteAccount.path) { DeleteAccountScreen(screenPadding) { navController.popBackStack(Route.Login.path, false) } }
+            composable(Route.Voice.path) { VoiceScreen(screenPadding, onManual = { navController.navigate(Route.ManualHabit.path) }) }
+            composable(Route.ManualHabit.path) { ManualHabitScreen(screenPadding, onDone = { navController.popBackStack() }) }
         }
     }
 }
