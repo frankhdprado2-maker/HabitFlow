@@ -796,14 +796,16 @@ fun VoiceScreen(
                 ClayCard(containerColor = MaterialTheme.colorScheme.errorContainer) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.onErrorContainer)
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            HabitFlowSecondaryButton("Reintentar", onClick = onMicClick, modifier = Modifier.weight(1f))
-                            HabitFlowSecondaryButton(
-                                "Escribir",
-                                onClick = { typedText = state.partialTranscript.ifBlank { state.transcript } },
-                                modifier = Modifier.weight(1f)
-                            )
-                            HabitFlowSecondaryButton("Manual", onClick = onManual, modifier = Modifier.weight(1f))
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                HabitFlowSecondaryButton("Reintentar", onClick = onMicClick, modifier = Modifier.weight(1f))
+                                HabitFlowSecondaryButton(
+                                    "Escribir",
+                                    onClick = { typedText = state.partialTranscript.ifBlank { state.transcript } },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            HabitFlowSecondaryButton("Manual", onClick = onManual)
                         }
                         if (permissionError) {
                             HabitFlowSecondaryButton("Abrir ajustes", onClick = openSettings)
@@ -1019,7 +1021,7 @@ private fun voiceStatusLabel(phase: VoiceAssistantPhase): String =
         VoiceAssistantPhase.AwaitingConfirmation -> "Confirmando"
         VoiceAssistantPhase.Speaking -> "Respondiendo"
         VoiceAssistantPhase.Completed -> "Listo"
-        is VoiceAssistantPhase.Error -> "Necesita atencion"
+        is VoiceAssistantPhase.Error -> "Necesita atención"
     }
 
 private tailrec fun Context.findActivity(): Activity? =
