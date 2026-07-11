@@ -1,13 +1,14 @@
 package com.unmsm.habitflow.voice
 
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceControllerTest {
     @Test
-    fun startListeningUsesOnDeviceRecognitionAndEmitsPartialAndFinalText() {
-        val service = FakeSpeechRecognitionService(VoiceRecognitionMode.OnDevice)
+    fun startListeningUsesSystemRecognitionAndEmitsPartialAndFinalText() {
+        val service = FakeSpeechRecognitionService(VoiceRecognitionMode.System)
         val controller = VoiceController(
             FakeSpeechRecognitionServiceFactory(
                 available = true,
@@ -25,25 +26,27 @@ class VoiceControllerTest {
             onError = errors::add
         ).getOrThrow()
 
-        assertEquals(VoiceRecognitionMode.OnDevice, mode)
-        assertEquals("es-PE", service.configs.single().language)
-        assertTrue(service.configs.single().preferOffline)
+        assertEquals(VoiceRecognitionMode.System, mode)
+        assertTrue(service.created)
+        assertEquals("es-ES", service.configs.single().language)
+        assertTrue(service.configs.single().partialResults)
+        assertEquals(3, service.configs.single().maxResults)
 
         service.listener.onReadyForSpeech()
         assertEquals(VoiceRecognitionState.Listening, controller.state.value)
 
-        service.listener.onPartialResults(listOf("", "Hoy tomé"))
-        assertEquals(listOf("Hoy tomé"), partials)
-        assertEquals(VoiceRecognitionState.PartialResult("Hoy tomé"), controller.state.value)
+        service.listener.onPartialResults(listOf("", "Hoy tome"))
+        assertEquals(listOf("Hoy tome"), partials)
+        assertEquals(VoiceRecognitionState.PartialResult("Hoy tome"), controller.state.value)
 
-        service.listener.onResults(listOf("Hoy tomé dos litros de agua"))
-        assertEquals(listOf("Hoy tomé dos litros de agua"), finals)
+        service.listener.onResults(listOf("Hoy tome dos litros de agua"))
+        assertEquals(listOf("Hoy tome dos litros de agua"), finals)
         assertTrue(errors.isEmpty())
-        assertEquals(VoiceRecognitionState.Result("Hoy tomé dos litros de agua"), controller.state.value)
+        assertEquals(VoiceRecognitionState.Result("Hoy tome dos litros de agua"), controller.state.value)
     }
 
     @Test
-    fun startListeningFallsBackToSystemRecognizerWhenOnDeviceIsUnavailable() {
+    fun startListeningUsesSystemRecognizerWhenOnDeviceIsUnavailable() {
         val service = FakeSpeechRecognitionService(VoiceRecognitionMode.System)
         val controller = VoiceController(
             FakeSpeechRecognitionServiceFactory(
@@ -60,13 +63,13 @@ class VoiceControllerTest {
         ).getOrThrow()
 
         assertEquals(VoiceRecognitionMode.System, mode)
-        assertEquals(false, service.createdWithOnDevicePreference)
-        assertEquals("es-PE", service.configs.single().language)
+        assertTrue(service.created)
+        assertEquals("es-ES", service.configs.single().language)
     }
 
     @Test
-    fun languageUnavailableRetriesSpanishFallbackBeforeReportingError() {
-        val service = FakeSpeechRecognitionService(VoiceRecognitionMode.OnDevice)
+    fun languageUnavailableRetriesWithDefaultLocaleBeforeReportingError() {
+        val service = FakeSpeechRecognitionService(VoiceRecognitionMode.System)
         val controller = VoiceController(
             FakeSpeechRecognitionServiceFactory(
                 available = true,
@@ -85,11 +88,44 @@ class VoiceControllerTest {
 
         service.listener.onError(12)
 
-        assertEquals(listOf("es-PE", "es-ES"), service.configs.map { it.language })
+        assertEquals(
+            listOf("es-ES", Locale.getDefault().toLanguageTag()),
+            service.configs.map { it.language }
+        )
         assertTrue(errors.isEmpty())
 
-        service.listener.onResults(listOf("Hoy tomé dos litros de agua"))
-        assertEquals(listOf("Hoy tomé dos litros de agua"), finals)
+        service.listener.onResults(listOf("Hoy tome dos litros de agua"))
+        assertEquals(listOf("Hoy tome dos litros de agua"), finals)
+    }
+
+    @Test
+    fun languageFallbackStopsAfterDefaultLocaleAndGenericSpanish() {
+        val service = FakeSpeechRecognitionService(VoiceRecognitionMode.System)
+        val controller = VoiceController(
+            FakeSpeechRecognitionServiceFactory(
+                available = true,
+                onDeviceAvailable = true,
+                service = service
+            )
+        )
+        val errors = mutableListOf<VoiceRecognitionError>()
+
+        controller.startListening(
+            onPartial = {},
+            onFinal = {},
+            onError = errors::add
+        ).getOrThrow()
+
+        service.listener.onError(12)
+        service.listener.onError(13)
+        service.listener.onError(12)
+
+        assertEquals(
+            listOf("es-ES", Locale.getDefault().toLanguageTag(), "es"),
+            service.configs.map { it.language }
+        )
+        assertEquals(1, errors.size)
+        assertEquals(12, errors.single().code)
     }
 
     @Test
@@ -125,8 +161,8 @@ class VoiceControllerTest {
         override fun isOnDeviceRecognitionAvailable(): Boolean = onDeviceAvailable
         override fun isCurrentThreadMain(): Boolean = true
 
-        override fun create(preferOnDevice: Boolean): SpeechRecognitionService {
-            service.createdWithOnDevicePreference = preferOnDevice
+        override fun create(): SpeechRecognitionService {
+            service.created = true
             return service
         }
     }
@@ -135,7 +171,7 @@ class VoiceControllerTest {
         override val mode: VoiceRecognitionMode
     ) : SpeechRecognitionService {
         val configs = mutableListOf<SpeechRecognitionConfig>()
-        var createdWithOnDevicePreference: Boolean? = null
+        var created = false
         lateinit var listener: SpeechRecognitionCallback
             private set
 

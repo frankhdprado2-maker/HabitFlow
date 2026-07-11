@@ -27,7 +27,6 @@ enum class VoiceRecognitionMode {
 
 internal data class SpeechRecognitionConfig(
     val language: String,
-    val preferOffline: Boolean,
     val partialResults: Boolean = true,
     val maxResults: Int = 3
 )
@@ -54,7 +53,7 @@ internal interface SpeechRecognitionServiceFactory {
     fun isRecognitionAvailable(): Boolean
     fun isOnDeviceRecognitionAvailable(): Boolean
     fun isCurrentThreadMain(): Boolean
-    fun create(preferOnDevice: Boolean): SpeechRecognitionService
+    fun create(): SpeechRecognitionService
 }
 
 @Singleton
@@ -77,7 +76,7 @@ class VoiceController private constructor(
     private var cancelledByUser = false
     private var currentLanguageIndex = 0
     private var activeCallbacks: ActiveVoiceCallbacks? = null
-    private val recognitionLanguages = listOf("es-PE", "es-ES", "es")
+    private val recognitionLanguages = listOf("es-ES", Locale.getDefault().toLanguageTag(), "es")
     private val _state = MutableStateFlow<VoiceRecognitionState>(VoiceRecognitionState.Idle)
     val state: StateFlow<VoiceRecognitionState> = _state.asStateFlow()
 
@@ -163,10 +162,8 @@ class VoiceController private constructor(
         val callbacks = activeCallbacks ?: error("No hay callbacks activos para reconocimiento de voz.")
         val service = getOrCreateSpeechService()
         val language = recognitionLanguages[currentLanguageIndex]
-        val config = SpeechRecognitionConfig(
-            language = language,
-            preferOffline = true
-        )
+        logSpeechLanguageAttempt(language)
+        val config = SpeechRecognitionConfig(language = language)
         val callback = createRecognitionCallback(callbacks)
         service.startListening(config, callback)
         listening = true
@@ -175,8 +172,7 @@ class VoiceController private constructor(
 
     private fun getOrCreateSpeechService(): SpeechRecognitionService {
         speechService?.let { return it }
-        val preferOnDevice = speechFactory.isOnDeviceRecognitionAvailable()
-        return speechFactory.create(preferOnDevice).also { speechService = it }
+        return speechFactory.create().also { speechService = it }
     }
 
     private fun createRecognitionCallback(callbacks: ActiveVoiceCallbacks): SpeechRecognitionCallback =
@@ -352,17 +348,8 @@ private class AndroidSpeechRecognitionServiceFactory(
 
     override fun isCurrentThreadMain(): Boolean = Looper.myLooper() == Looper.getMainLooper()
 
-    override fun create(preferOnDevice: Boolean): SpeechRecognitionService {
-        if (preferOnDevice && isOnDeviceRecognitionAvailable()) {
-            runCatching {
-                return AndroidSpeechRecognitionService(
-                    SpeechRecognizer.createOnDeviceSpeechRecognizer(context),
-                    VoiceRecognitionMode.OnDevice
-                )
-            }.onFailure { error ->
-                logRecognizerCreationError(error)
-            }
-        }
+    override fun create(): SpeechRecognitionService {
+        logSystemSpeechRecognizer()
         return AndroidSpeechRecognitionService(
             SpeechRecognizer.createSpeechRecognizer(context),
             VoiceRecognitionMode.System
@@ -411,11 +398,8 @@ private fun SpeechRecognitionConfig.toIntent(): Intent =
     Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language)
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, partialResults)
         putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, maxResults)
-        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline)
-        putExtra(RecognizerIntent.EXTRA_PROMPT, "Dime que habito quieres registrar")
     }
 
 private fun Bundle?.speechTexts(): List<String> =
@@ -428,8 +412,12 @@ private fun logSpeechRecognizerError(error: Int) {
     runCatching { Log.e(VOICE_LOG_TAG, "SpeechRecognizer error code=$error") }
 }
 
-private fun logRecognizerCreationError(error: Throwable) {
-    runCatching { Log.e(VOICE_LOG_TAG, "Could not create on-device SpeechRecognizer", error) }
+private fun logSystemSpeechRecognizer() {
+    runCatching { Log.d(VOICE_LOG_TAG, "Using system speech recognizer") }
+}
+
+private fun logSpeechLanguageAttempt(language: String) {
+    runCatching { Log.d(VOICE_LOG_TAG, "Trying language=$language") }
 }
 
 private const val ERROR_LANGUAGE_NOT_SUPPORTED = 12
