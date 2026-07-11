@@ -12,5 +12,11 @@ connect_args = {"statement_cache_size": 0}
 if settings.POSTGRES_SSLMODE == "require":
     connect_args["ssl"] = True
 
-engine = create_async_engine(DATABASE_URL, echo=False, connect_args=connect_args)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    connect_args=connect_args,
+    pool_pre_ping=True,
+    pool_recycle=settings.POSTGRES_POOL_RECYCLE_SECONDS,
+)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
     POSTGRES_SSLMODE: str = "disable"
+    POSTGRES_POOL_RECYCLE_SECONDS: int = 300
 
     # Mongo
     MONGO_URI: str
