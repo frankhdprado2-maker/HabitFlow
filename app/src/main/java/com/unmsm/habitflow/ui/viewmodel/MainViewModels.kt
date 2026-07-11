@@ -107,7 +107,12 @@ class HomeViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             when (val result = authRepository.me()) {
-                is AppResult.Success -> _userName.value = result.data.name.ifBlank { result.data.username }
+                is AppResult.Success -> {
+                    _userName.value = result.data.name.ifBlank { result.data.username }
+                    if (result.data.email.equals(DEMO_ANALYSIS_EMAIL, ignoreCase = true)) {
+                        habitRepository.seedDemoAccountData()
+                    }
+                }
                 is AppResult.Error -> Unit
             }
         }
@@ -142,6 +147,8 @@ class HomeViewModel @Inject constructor(
         }
     }
 }
+
+private const val DEMO_ANALYSIS_EMAIL = "demo.analisis.2026@habitflow.app"
 
 @HiltViewModel
 class HabitDetailViewModel @Inject constructor(

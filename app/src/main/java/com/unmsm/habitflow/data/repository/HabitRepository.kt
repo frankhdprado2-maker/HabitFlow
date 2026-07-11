@@ -106,6 +106,40 @@ class HabitRepository @Inject constructor(
         }
     }
 
+    suspend fun seedDemoAccountData() {
+        if (habitDao.count() == 0) {
+            habitDao.upsertAll(demoHabits().map { it.toEntity() })
+            achievementDao.upsertAll(
+                listOf(
+                    Achievement("demo-first", "Primer registro", "Completaste tu primer hábito.", "Completa 1 hábito", true, 100),
+                    Achievement("demo-week", "Semana sólida", "Mantuviste una rutina durante una semana.", "Racha de 7 días", true, 250),
+                    Achievement("demo-focus", "Modo enfoque", "Completaste varias sesiones de estudio.", "5 registros de estudio", true, 180)
+                ).map { it.toEntity() }
+            )
+            notificationDao.upsertAll(
+                listOf(
+                    AppNotification(
+                        "demo-summary",
+                        "Tu resumen está listo",
+                        "Pregunta al Coach cómo fue tu semana.",
+                        NotificationKind.WeeklySummary,
+                        System.currentTimeMillis()
+                    ),
+                    AppNotification(
+                        "demo-risk",
+                        "Rutina para revisar",
+                        "Correr fue el hábito más difícil de sostener esta semana.",
+                        NotificationKind.StreakRisk,
+                        System.currentTimeMillis() - DAY_MS
+                    )
+                ).map { it.toEntity() }
+            )
+        }
+        if (eventDao.count() == 0) {
+            eventDao.upsertAll(demoHabitEvents().map { it.toEntity() })
+        }
+    }
+
     suspend fun savePlanRecommendation(plan: VoicePlanResult) {
         planRecommendationDao.upsert(
             PlanRecommendation(
@@ -245,6 +279,58 @@ class HabitRepository @Inject constructor(
             eventDao.upsertAll(remoteEvents)
         }
 }
+
+private fun demoHabits(): List<Habit> = listOf(
+    Habit("demo-water", "Tomar agua", "water_drop", "Diario", "10:00", "Salud", streak = 13, bestStreak = 13),
+    Habit("demo-study", "Estudiar 45 minutos", "school", "Lun-Vie", "18:00", "Estudio", streak = 3, bestStreak = 6),
+    Habit("demo-run", "Correr 30 minutos", "directions_run", "Mar-Jue-Sab", "19:00", "Ejercicio", streak = 1, bestStreak = 4),
+    Habit("demo-read", "Leer 20 páginas", "menu_book", "Diario", "21:00", "Crecimiento", streak = 4, bestStreak = 7)
+)
+
+private fun demoHabitEvents(): List<HabitEvent> {
+    val definitions = listOf(
+        DemoHabitHistory("demo-water", "Tomar agua", completedDays = (0..13).filter { it != 6 }, skippedDays = listOf(6)),
+        DemoHabitHistory("demo-study", "Estudiar 45 minutos", completedDays = listOf(0, 1, 2, 4, 5, 7, 8, 9, 11, 12), skippedDays = listOf(3, 6, 10, 13)),
+        DemoHabitHistory("demo-run", "Correr 30 minutos", completedDays = listOf(1, 4, 8, 11), skippedDays = listOf(0, 3, 6, 10, 13)),
+        DemoHabitHistory("demo-read", "Leer 20 páginas", completedDays = listOf(0, 2, 4, 6, 8, 10, 12), skippedDays = listOf(1, 5, 9, 13))
+    )
+    return definitions.flatMap { history ->
+        val completed = history.completedDays.map { daysAgo ->
+            demoEvent(history, daysAgo, HabitStatus.Completed)
+        }
+        val skipped = history.skippedDays.map { daysAgo ->
+            demoEvent(history, daysAgo, HabitStatus.Skipped)
+        }
+        completed + skipped
+    }
+}
+
+private fun demoEvent(history: DemoHabitHistory, daysAgo: Int, status: HabitStatus): HabitEvent {
+    val timestamp = LocalDate.now()
+        .minusDays(daysAgo.toLong())
+        .atTime(if (history.habitId == "demo-water") 10 else 19, 0)
+        .atZone(ZoneId.of("America/Lima"))
+        .toInstant()
+        .toEpochMilli()
+    return HabitEvent(
+        id = "demo-${history.habitId}-$daysAgo-${status.name.lowercase()}",
+        habitId = history.habitId,
+        habitName = history.habitName,
+        status = status,
+        timestamp = timestamp,
+        note = "Dato de demostración",
+        synced = true
+    )
+}
+
+private data class DemoHabitHistory(
+    val habitId: String,
+    val habitName: String,
+    val completedDays: List<Int>,
+    val skippedDays: List<Int>
+)
+
+private const val DAY_MS = 86_400_000L
 
 private fun VoiceEventResult.eventTimestamp(): Long =
     date
