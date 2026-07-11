@@ -78,6 +78,7 @@ fun HabitFlowTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     accentColor: String = HabitFlowAccent.Mint.key,
     dynamicColor: Boolean = false,
+    textScale: String = HabitFlowTextScale.Standard.key,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -93,7 +94,7 @@ fun HabitFlowTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         shapes = HabitFlowShapesMaterial,
-        typography = Typography,
+        typography = habitFlowTypography(textScale),
         content = content
     )
 }

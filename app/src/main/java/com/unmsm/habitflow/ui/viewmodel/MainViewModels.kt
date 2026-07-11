@@ -15,6 +15,7 @@ import com.unmsm.habitflow.domain.model.InterpretedHabit
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.ui.state.AchievementsUiState
+import com.unmsm.habitflow.ui.state.CoachUiState
 import com.unmsm.habitflow.ui.state.EditProfileUiState
 import com.unmsm.habitflow.ui.state.HabitAssociationOptionUi
 import com.unmsm.habitflow.ui.state.HabitDetailUiState
@@ -32,6 +33,7 @@ import com.unmsm.habitflow.ui.state.VoiceMessageUi
 import com.unmsm.habitflow.ui.state.VoiceUiState
 import com.unmsm.habitflow.util.AppResult
 import com.unmsm.habitflow.voice.LocalVoiceCommandParser
+import com.unmsm.habitflow.voice.isCoachRequest
 import com.unmsm.habitflow.voice.VoiceErrorType
 import com.unmsm.habitflow.voice.VoiceController
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -54,7 +56,14 @@ class ThemeViewModel @Inject constructor(
     settingsRepository: SettingsRepository
 ) : ViewModel() {
     val state: StateFlow<ThemeUiState> = settingsRepository.settings
-        .map { ThemeUiState(darkMode = it.darkMode, accentColor = it.accentColor) }
+        .map {
+            ThemeUiState(
+                themeMode = it.themeMode,
+                accentColor = it.accentColor,
+                dynamicColor = it.dynamicColor,
+                textScale = it.textScale
+            )
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThemeUiState())
 }
 
@@ -161,12 +170,15 @@ class HabitDetailViewModel @Inject constructor(
 
 @HiltViewModel
 class StatsViewModel @Inject constructor(
-    habitRepository: HabitRepository
+    private val habitRepository: HabitRepository,
+    private val voiceRepository: VoiceRepository
 ) : ViewModel() {
+    private val coach = MutableStateFlow(CoachUiState())
     val state: StateFlow<StatsUiState> = combine(
         habitRepository.observeHabits(),
-        habitRepository.observeEvents()
-    ) { habits, events ->
+        habitRepository.observeEvents(),
+        coach
+    ) { habits, events, coachState ->
             val completedEvents = events.filter { it.status == HabitStatus.Completed }
             val weekStart = startOfToday() - 6 * DAY_MS
             val previousWeekStart = weekStart - 7 * DAY_MS
@@ -180,6 +192,19 @@ class StatsViewModel @Inject constructor(
             val monthStart = startOfMonth()
             val monthEvents = completedEvents.count { it.timestamp >= monthStart }
             val possibleMonthSlots = (habits.size.coerceAtLeast(1) * currentDayOfMonth()).coerceAtLeast(1)
+            val recentAttempts = events
+                .filter { it.timestamp >= startOfToday() - 29 * DAY_MS }
+                .groupBy { it.habitId }
+            val completionRates = habits.associate { habit ->
+                val attempts = recentAttempts[habit.id].orEmpty()
+                    .filter { it.status != HabitStatus.Pending }
+                val rate = if (attempts.isEmpty()) {
+                    0f
+                } else {
+                    attempts.count { it.status == HabitStatus.Completed }.toFloat() / attempts.size
+                }
+                habit.id to rate
+            }
             StatsUiState(
                 currentStreak = habits.maxOfOrNull { it.streak } ?: 0,
                 bestStreak = habits.maxOfOrNull { it.bestStreak } ?: 0,
@@ -188,10 +213,63 @@ class StatsViewModel @Inject constructor(
                 habits = habits,
                 totalCompleted = completedEvents.size,
                 weeklyComparison = currentWeek - previousWeek,
-                hasData = completedEvents.isNotEmpty()
+                hasData = completedEvents.isNotEmpty(),
+                habitCompletionRates = completionRates,
+                coach = coachState
             )
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsUiState())
+
+    fun updateCoachQuestion(value: String) = coach.update { it.copy(question = value, error = null) }
+
+    fun askCoach(question: String = state.value.coach.question) {
+        val clean = question.trim()
+        if (clean.isBlank() || coach.value.loading) return
+        coach.update {
+            it.copy(
+                question = clean,
+                loading = true,
+                title = "",
+                answer = "",
+                evidence = emptyList(),
+                error = null
+            )
+        }
+        viewModelScope.launch {
+            val habits = habitRepository.activeHabits()
+            val events = habitRepository.recentEvents()
+            val achievements = habitRepository.achievementsSnapshot()
+            when (
+                val result = voiceRepository.conversation(
+                    text = clean,
+                    habits = habits,
+                    recentEvents = events,
+                    achievements = achievements,
+                    categories = habits.map { it.category }.filter { it.isNotBlank() }.distinct()
+                )
+            ) {
+                is AppResult.Success -> {
+                    val insight = result.data.toDomainCommandResult()
+                    coach.update { current ->
+                        current.copy(
+                            loading = false,
+                            title = insight.plan?.title ?: "Insight de HabitFlow",
+                            answer = insight.response,
+                            evidence = insight.plan?.actions.orEmpty(),
+                            suggestions = insight.quickReplies.ifEmpty { current.suggestions },
+                            error = null
+                        )
+                    }
+                }
+                is AppResult.Error -> coach.update {
+                    it.copy(
+                        loading = false,
+                        error = "No pude analizar tus datos ahora. ${result.message}"
+                    )
+                }
+            }
+        }
+    }
 }
 
 @HiltViewModel
@@ -294,7 +372,9 @@ class SettingsViewModel @Inject constructor(
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
-    fun toggleDarkMode(value: Boolean) = viewModelScope.launch { settingsRepository.setDarkMode(value) }
+    fun setThemeMode(value: String) = viewModelScope.launch { settingsRepository.setThemeMode(value) }
+    fun toggleDynamicColor(value: Boolean) = viewModelScope.launch { settingsRepository.setDynamicColor(value) }
+    fun setTextScale(value: String) = viewModelScope.launch { settingsRepository.setTextScale(value) }
     fun toggleNotifications(value: Boolean) = viewModelScope.launch { settingsRepository.setNotifications(value) }
     fun toggleBiometric(value: Boolean) = viewModelScope.launch { settingsRepository.setBiometric(value) }
     fun togglePublicProfile(value: Boolean) = viewModelScope.launch { settingsRepository.setPublicProfile(value) }
@@ -363,7 +443,7 @@ class VoiceViewModel @Inject constructor(
             it.copy(
                 phase = VoiceAssistantPhase.Idle,
                 messages = it.messages + VoiceMessageUi("assistant", greeting),
-                quickReplies = listOf("Ya corrí treinta minutos", "Quiero leer veinte páginas", "Qué me falta hoy")
+                quickReplies = listOf("Resumen semanal", "Plan de hoy", "Qué me falta hoy")
             )
         }
         speak(greeting)
@@ -522,6 +602,7 @@ class VoiceViewModel @Inject constructor(
     fun sendText(text: String) {
         val clean = text.trim()
         if (clean.isBlank()) return
+        val coachRequest = isCoachRequest(clean)
         val currentState = state.value
         if (currentState.phase == VoiceAssistantPhase.Processing || currentState.savingInterpretation) return
         if (state.value.interpretedHabits.isNotEmpty()) {
@@ -544,7 +625,7 @@ class VoiceViewModel @Inject constructor(
                 transcribing = false,
                 transcript = clean,
                 partialTranscript = "",
-                response = "Interpretando tu hábito...",
+                response = if (coachRequest) "Analizando tus datos..." else "Interpretando tu hábito...",
                 messages = it.messages + VoiceMessageUi("user", clean),
                 quickReplies = emptyList(),
                 pendingSummary = null,
@@ -552,19 +633,29 @@ class VoiceViewModel @Inject constructor(
                 interpretedHabits = emptyList(),
                 interpretationConfidence = 0.0,
                 savingInterpretation = false,
+                coachTitle = "",
+                coachHighlights = emptyList(),
                 permissionPermanentlyDenied = false,
                 error = null
             )
         }
         viewModelScope.launch {
             val habits = habitRepository.activeHabits()
+            if (coachRequest) {
+                requestCoach(clean, habits)
+                return@launch
+            }
             when (val result = voiceRepository.interpretHabit(text = clean, timezone = "America/Lima")) {
                 is AppResult.Success -> {
-                    handleHabitInterpretation(
-                        text = clean,
-                        result = result.data,
-                        existingHabits = habits
-                    )
+                    if (result.data.intent == "query_habit" || result.data.intent == "plan_habit") {
+                        requestCoach(clean, habits)
+                    } else {
+                        handleHabitInterpretation(
+                            text = clean,
+                            result = result.data,
+                            existingHabits = habits
+                        )
+                    }
                 }
                 is AppResult.Error -> {
                     val message = if (result.message.contains("conectar", ignoreCase = true)) {
@@ -575,6 +666,27 @@ class VoiceViewModel @Inject constructor(
                     showError(message, VoiceErrorType.Network)
                 }
             }
+        }
+    }
+
+    private suspend fun requestCoach(text: String, habits: List<Habit>) {
+        val events = habitRepository.recentEvents()
+        val achievements = habitRepository.achievementsSnapshot()
+        when (
+            val result = voiceRepository.conversation(
+                text = text,
+                habits = habits,
+                recentEvents = events,
+                achievements = achievements,
+                categories = habits.map { it.category }.filter { it.isNotBlank() }.distinct(),
+                sessionId = state.value.conversationId
+            )
+        ) {
+            is AppResult.Success -> handleVoiceResult(result.data.toDomainCommandResult(), localMode = false)
+            is AppResult.Error -> showError(
+                "El coach necesita conexión para analizar tus datos. Conservé tu pregunta para reintentar.",
+                VoiceErrorType.Network
+            )
         }
     }
 
@@ -821,7 +933,6 @@ class VoiceViewModel @Inject constructor(
             return
         }
 
-        result.plan?.let { habitRepository.savePlanRecommendation(it) }
         val message = if (localMode && result.intent != "aclaracion") {
             "Estoy usando el modo sin conexion. ${result.response}"
         } else {
@@ -836,6 +947,8 @@ class VoiceViewModel @Inject constructor(
                 quickReplies = result.quickReplies,
                 conversationId = result.conversationId ?: it.conversationId,
                 pendingSummary = null,
+                coachTitle = result.plan?.title.orEmpty(),
+                coachHighlights = result.plan?.actions.orEmpty(),
                 error = null
             )
         }

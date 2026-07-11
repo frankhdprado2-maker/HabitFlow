@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import dagger.hilt.android.AndroidEntryPoint
@@ -22,9 +23,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val themeState by themeViewModel.state.collectAsState()
+            val systemDarkTheme = isSystemInDarkTheme()
             HabitFlowTheme(
-                darkTheme = themeState.darkMode,
-                accentColor = themeState.accentColor
+                darkTheme = when (themeState.themeMode) {
+                    "dark" -> true
+                    "light" -> false
+                    else -> systemDarkTheme
+                },
+                accentColor = themeState.accentColor,
+                dynamicColor = themeState.dynamicColor,
+                textScale = themeState.textScale
             ) {
                 HabitFlowApp()
             }

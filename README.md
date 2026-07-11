@@ -92,14 +92,22 @@ Flujo actual:
 
 1. El usuario toca el microfono en `Registrar con voz`.
 2. Android solicita `RECORD_AUDIO` en tiempo de ejecucion si hace falta.
-3. Android convierte voz a texto con `SpeechRecognizer` configurado para `es-PE`.
+3. Android convierte voz a texto con el reconocedor del sistema, empezando en `es-ES` y usando el idioma del teléfono y `es` como respaldos finitos.
 4. La transcripcion aparece en pantalla y puede editarse manualmente.
 5. La app envia solo texto autenticado a `POST /ai/interpret-habit`.
 6. FastAPI llama a Gemini con `google-genai`, valida la respuesta con Pydantic y responde con habitos estructurados.
 7. Android muestra una confirmacion editable con nombre, estado, cantidad, unidad, fecha, notas y asociacion con habitos existentes.
 8. Solo al tocar `Confirmar y registrar`, Android reutiliza `HabitRepository.applyVoiceCommand`, Room y `geo-events/`.
 
-La IA nunca guarda automaticamente un habito. Si detecta `query_habit`, la app no guarda nada y muestra que las consultas inteligentes quedan para una version posterior.
+La IA nunca guarda automaticamente un habito. Las consultas de progreso, resumen semanal, plan del dia y recomendaciones se responden con datos reales sin modificar la rutina.
+
+### Coach y personalizacion
+
+- La pantalla de progreso permite consultar estadísticas con un Coach inteligente.
+- El resumen y las recomendaciones muestran evidencia derivada de hábitos y eventos recientes.
+- Las recomendaciones no se aplican automáticamente.
+- Apariencia configurable con tema del sistema, claro u oscuro.
+- Colores dinámicos en Android 12 o superior, cinco acentos y tres tamaños de texto.
 
 Ejemplos soportados:
 
@@ -287,6 +295,6 @@ pytest
 ## Limitaciones conocidas
 
 - El reconocimiento de voz depende del dispositivo/servicios Android; el modo offline solo funciona si Android lo soporta.
-- Las consultas tipo `Cuantas veces medite esta semana?` se detectan como `query_habit`, pero todavia no generan respuestas estadisticas inteligentes.
+- Las consultas de progreso se envían al endpoint conversacional con hábitos, eventos recientes y logros como contexto verificable.
 - La asociacion con habitos existentes se infiere localmente por nombre y puede corregirse con chips antes de guardar.
 - No se guarda audio ni se envia audio a FastAPI; solo se envia texto.

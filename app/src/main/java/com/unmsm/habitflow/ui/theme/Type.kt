@@ -73,3 +73,33 @@ val Typography = Typography(
         letterSpacing = 0.sp
     )
 )
+
+enum class HabitFlowTextScale(val key: String, val label: String, val factor: Float) {
+    Compact("compact", "Compacto", 0.92f),
+    Standard("standard", "Estándar", 1f),
+    Large("large", "Grande", 1.12f)
+}
+
+fun habitFlowTypography(scaleKey: String): Typography {
+    val factor = HabitFlowTextScale.entries
+        .firstOrNull { it.key == scaleKey }
+        ?.factor
+        ?: HabitFlowTextScale.Standard.factor
+    if (factor == 1f) return Typography
+    return Typography.copy(
+        displaySmall = Typography.displaySmall.scaled(factor),
+        headlineLarge = Typography.headlineLarge.scaled(factor),
+        headlineMedium = Typography.headlineMedium.scaled(factor),
+        titleLarge = Typography.titleLarge.scaled(factor),
+        titleMedium = Typography.titleMedium.scaled(factor),
+        bodyLarge = Typography.bodyLarge.scaled(factor),
+        bodyMedium = Typography.bodyMedium.scaled(factor),
+        labelLarge = Typography.labelLarge.scaled(factor),
+        labelMedium = Typography.labelMedium.scaled(factor)
+    )
+}
+
+private fun TextStyle.scaled(factor: Float): TextStyle = copy(
+    fontSize = (fontSize.value * factor).sp,
+    lineHeight = (lineHeight.value * factor).sp
+)

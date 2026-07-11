@@ -21,18 +21,22 @@ class SettingsRepository @Inject constructor(
 ) {
     val settings: Flow<SettingsState> = context.dataStore.data.map { prefs ->
         SettingsState(
-            darkMode = prefs[DARK_MODE] ?: false,
+            themeMode = prefs[THEME_MODE]
+                ?: prefs[DARK_MODE]?.let { if (it) "dark" else "light" }
+                ?: "system",
             notifications = prefs[NOTIFICATIONS] ?: true,
             biometric = prefs[BIOMETRIC] ?: false,
             publicProfile = prefs[PUBLIC_PROFILE] ?: true,
             language = prefs[LANGUAGE] ?: "Español (Perú)",
             accentColor = prefs[ACCENT_COLOR] ?: HabitFlowAccent.Mint.key,
+            dynamicColor = prefs[DYNAMIC_COLOR] ?: false,
+            textScale = prefs[TEXT_SCALE] ?: "standard",
             voiceResponseEnabled = prefs[VOICE_RESPONSE] ?: true,
             onboardingCompleted = prefs[ONBOARDING_COMPLETED] ?: false
         )
     }
 
-    suspend fun setDarkMode(value: Boolean) = setBoolean(DARK_MODE, value)
+    suspend fun setDarkMode(value: Boolean) = setThemeMode(if (value) "dark" else "light")
     suspend fun setNotifications(value: Boolean) = setBoolean(NOTIFICATIONS, value)
     suspend fun setBiometric(value: Boolean) = setBoolean(BIOMETRIC, value)
     suspend fun setPublicProfile(value: Boolean) = setBoolean(PUBLIC_PROFILE, value)
@@ -41,6 +45,18 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setAccentColor(value: String) {
         context.dataStore.edit { prefs -> prefs[ACCENT_COLOR] = value }
+    }
+
+    suspend fun setThemeMode(value: String) {
+        if (value !in THEME_MODES) return
+        context.dataStore.edit { prefs -> prefs[THEME_MODE] = value }
+    }
+
+    suspend fun setDynamicColor(value: Boolean) = setBoolean(DYNAMIC_COLOR, value)
+
+    suspend fun setTextScale(value: String) {
+        if (value !in TEXT_SCALES) return
+        context.dataStore.edit { prefs -> prefs[TEXT_SCALE] = value }
     }
 
     private suspend fun setBoolean(key: Preferences.Key<Boolean>, value: Boolean) {
@@ -56,16 +72,25 @@ class SettingsRepository @Inject constructor(
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val LANGUAGE = stringPreferencesKey("language")
         val ACCENT_COLOR = stringPreferencesKey("accent_color")
+        val THEME_MODE = stringPreferencesKey("theme_mode")
+        val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val TEXT_SCALE = stringPreferencesKey("text_scale")
+        val THEME_MODES = setOf("system", "light", "dark")
+        val TEXT_SCALES = setOf("compact", "standard", "large")
     }
 }
 
 data class SettingsState(
-    val darkMode: Boolean = false,
+    val themeMode: String = "system",
     val notifications: Boolean = true,
     val biometric: Boolean = false,
     val publicProfile: Boolean = true,
     val language: String = "Español (Perú)",
     val accentColor: String = HabitFlowAccent.Mint.key,
+    val dynamicColor: Boolean = false,
+    val textScale: String = "standard",
     val voiceResponseEnabled: Boolean = true,
     val onboardingCompleted: Boolean = false
-)
+) {
+    val darkMode: Boolean get() = themeMode == "dark"
+}

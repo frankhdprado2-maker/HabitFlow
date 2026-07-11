@@ -71,7 +71,23 @@ data class StatsUiState(
     val habits: List<Habit> = emptyList(),
     val totalCompleted: Int = 0,
     val weeklyComparison: Int = 0,
-    val hasData: Boolean = false
+    val hasData: Boolean = false,
+    val habitCompletionRates: Map<String, Float> = emptyMap(),
+    val coach: CoachUiState = CoachUiState()
+)
+
+data class CoachUiState(
+    val question: String = "",
+    val loading: Boolean = false,
+    val title: String = "",
+    val answer: String = "",
+    val evidence: List<String> = emptyList(),
+    val suggestions: List<String> = listOf(
+        "Resumen semanal",
+        "Qué me recomiendas para mejorar mi rutina",
+        "Plan de hoy"
+    ),
+    val error: String? = null
 )
 
 data class HistoryUiState(
@@ -102,8 +118,10 @@ data class SettingsUiState(
 )
 
 data class ThemeUiState(
-    val darkMode: Boolean = false,
-    val accentColor: String = "mint"
+    val themeMode: String = "system",
+    val accentColor: String = "mint",
+    val dynamicColor: Boolean = false,
+    val textScale: String = "standard"
 )
 
 data class ProfileSetupUiState(
@@ -187,6 +205,8 @@ data class VoiceUiState(
     val habitAssociationOptions: List<HabitAssociationOptionUi> = emptyList(),
     val interpretationConfidence: Double = 0.0,
     val savingInterpretation: Boolean = false,
+    val coachTitle: String = "",
+    val coachHighlights: List<String> = emptyList(),
     val permissionPermanentlyDenied: Boolean = false,
     val error: String? = null
 )
