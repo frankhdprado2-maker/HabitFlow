@@ -98,9 +98,6 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
         buildConfigField("String", "WHISPER_MODEL_FILE", "\"${whisperModel.fileName}\"")
         buildConfigField("String", "WHISPER_MODEL_SHA256", "\"${whisperModel.sha256}\"")
         buildConfigField("long", "WHISPER_MODEL_SIZE", "${whisperModel.sizeBytes}L")
@@ -118,8 +115,16 @@ android {
     ndkVersion = "28.2.13676358"
 
     buildTypes {
+        debug {
+            ndk {
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
+        }
         release {
             isMinifyEnabled = false
+            ndk {
+                abiFilters += listOf("arm64-v8a")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
