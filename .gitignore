@@ -47,3 +47,4 @@ ggml-*.bin
 *.flac
 *.ogg
 /.codex_tmp/
+/.kotlin/

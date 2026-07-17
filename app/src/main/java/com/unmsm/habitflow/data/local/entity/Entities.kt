@@ -26,7 +26,12 @@ data class HabitEntity(
     val scheduleActive: Boolean,
     val frequencyNeedsReview: Boolean,
     val frequencyOriginal: String,
-    val scheduleEffectiveFrom: String?
+    val scheduleEffectiveFrom: String?,
+    val measurementType: String,
+    val targetValue: Double,
+    val measurementUnit: String,
+    val allowPartialProgress: Boolean,
+    val aggregationMode: String
 )
 
 @Entity(tableName = "habit_schedule_versions", indices = [Index("habitId")])
@@ -48,7 +53,7 @@ data class HabitScheduleVersionEntity(
     val effectiveTo: String?
 )
 
-@Entity(tableName = "habit_events")
+@Entity(tableName = "habit_events", indices = [Index(value = ["idempotencyKey"], unique = true)])
 data class HabitEventEntity(
     @PrimaryKey val id: String,
     val habitId: String,
@@ -56,7 +61,13 @@ data class HabitEventEntity(
     val status: String,
     val timestamp: Long,
     val note: String,
-    val synced: Boolean
+    val synced: Boolean,
+    val value: Double?,
+    val normalizedValue: Double?,
+    val unit: String?,
+    val aggregationMode: String?,
+    val idempotencyKey: String?,
+    val source: String
 )
 
 @Entity(tableName = "achievements")

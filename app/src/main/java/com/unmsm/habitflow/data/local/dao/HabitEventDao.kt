@@ -33,6 +33,9 @@ interface HabitEventDao {
     @Query("SELECT * FROM habit_events WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): HabitEventEntity?
 
+    @Query("SELECT * FROM habit_events WHERE idempotencyKey = :key LIMIT 1")
+    suspend fun findByIdempotencyKey(key: String): HabitEventEntity?
+
     @Query("SELECT COUNT(*) FROM habit_events")
     suspend fun count(): Int
 

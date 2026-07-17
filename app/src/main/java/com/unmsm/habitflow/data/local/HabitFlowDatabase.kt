@@ -32,7 +32,7 @@ import com.unmsm.habitflow.data.local.entity.UserProfileEntity
         CosmeticRewardEntity::class,
         HabitScheduleVersionEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class HabitFlowDatabase : RoomDatabase() {
@@ -196,6 +196,23 @@ abstract class HabitFlowDatabase : RoomDatabase() {
                     FROM habits
                     """.trimIndent()
                 )
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE habits ADD COLUMN measurementType TEXT NOT NULL DEFAULT 'BOOLEAN'")
+                db.execSQL("ALTER TABLE habits ADD COLUMN targetValue REAL NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE habits ADD COLUMN measurementUnit TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE habits ADD COLUMN allowPartialProgress INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE habits ADD COLUMN aggregationMode TEXT NOT NULL DEFAULT 'ADD'")
+                db.execSQL("ALTER TABLE habit_events ADD COLUMN value REAL")
+                db.execSQL("ALTER TABLE habit_events ADD COLUMN normalizedValue REAL")
+                db.execSQL("ALTER TABLE habit_events ADD COLUMN unit TEXT")
+                db.execSQL("ALTER TABLE habit_events ADD COLUMN aggregationMode TEXT")
+                db.execSQL("ALTER TABLE habit_events ADD COLUMN idempotencyKey TEXT")
+                db.execSQL("ALTER TABLE habit_events ADD COLUMN source TEXT NOT NULL DEFAULT 'MANUAL'")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_habit_events_idempotencyKey ON habit_events(idempotencyKey)")
             }
         }
     }

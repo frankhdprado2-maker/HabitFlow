@@ -61,6 +61,7 @@ data class HabitDetailUiState(
     val habit: Habit? = null,
     val events: List<HabitEvent> = emptyList(),
     val note: String = "",
+    val progressValue: String = "",
     val completionPercent: Int = 0,
     val heatmap: HabitHeatmap = HabitHeatmap()
 )
@@ -230,6 +231,11 @@ data class ManualHabitUiState(
     val startDate: String = "",
     val endDate: String = "",
     val timezone: String = "America/Lima",
+    val measurementType: String = "BOOLEAN",
+    val targetValue: String = "1",
+    val measurementUnit: String = "",
+    val allowPartialProgress: Boolean = false,
+    val aggregationMode: String = "ADD",
     val reminderTime: String = "Sin hora",
     val loading: Boolean = false,
     val saved: Boolean = false,

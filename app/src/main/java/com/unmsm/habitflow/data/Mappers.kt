@@ -30,9 +30,13 @@ import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.domain.model.VoicePlanResult
 import com.unmsm.habitflow.domain.habit.HabitFrequency
 import com.unmsm.habitflow.domain.habit.HabitFrequencyType
+import com.unmsm.habitflow.domain.habit.AggregationMode
+import com.unmsm.habitflow.domain.habit.HabitMeasurement
+import com.unmsm.habitflow.domain.habit.MeasurementType
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
+import java.util.UUID
 
 fun UserDto.toDomain() = User(
     id = id.ifBlank { email },
@@ -108,7 +112,14 @@ fun HabitEntity.toDomain() = Habit(
     isActive = isActive,
     streak = streak,
     bestStreak = bestStreak,
-    schedule = structuredFrequency()
+    schedule = structuredFrequency(),
+    measurement = HabitMeasurement(
+        type = runCatching { MeasurementType.valueOf(measurementType) }.getOrDefault(MeasurementType.BOOLEAN),
+        targetValue = targetValue,
+        unit = measurementUnit,
+        allowPartialProgress = allowPartialProgress,
+        aggregationMode = runCatching { AggregationMode.valueOf(aggregationMode) }.getOrDefault(AggregationMode.ADD)
+    )
 )
 
 fun Habit.toEntity() = HabitEntity(
@@ -132,7 +143,12 @@ fun Habit.toEntity() = HabitEntity(
     scheduleActive = schedule.active,
     frequencyNeedsReview = schedule.needsReview,
     frequencyOriginal = schedule.originalText.ifBlank { frequency },
-    scheduleEffectiveFrom = schedule.effectiveFrom?.toString()
+    scheduleEffectiveFrom = schedule.effectiveFrom?.toString(),
+    measurementType = measurement.type.name,
+    targetValue = measurement.targetValue,
+    measurementUnit = measurement.unit,
+    allowPartialProgress = measurement.allowPartialProgress,
+    aggregationMode = measurement.aggregationMode.name
 )
 
 fun HabitFrequency.toVersionEntity(habitId: String, id: String): HabitScheduleVersionEntity =
@@ -200,10 +216,19 @@ fun HabitEventEntity.toDomain() = HabitEvent(
     status = status.toHabitStatus(),
     timestamp = timestamp,
     note = note,
-    synced = synced
+    synced = synced,
+    value = value,
+    normalizedValue = normalizedValue,
+    unit = unit,
+    aggregationMode = aggregationMode?.let { runCatching { AggregationMode.valueOf(it) }.getOrNull() },
+    idempotencyKey = idempotencyKey,
+    source = source
 )
 
-fun HabitEvent.toEntity() = HabitEventEntity(id, habitId, habitName, status.name, timestamp, note, synced)
+fun HabitEvent.toEntity() = HabitEventEntity(
+    id, habitId, habitName, status.name, timestamp, note, synced, value, normalizedValue,
+    unit, aggregationMode?.name, idempotencyKey, source
+)
 
 fun GeoEventDto.toEntity() = HabitEventEntity(
     id = id.ifBlank { "${deviceId.orEmpty()}-${recordedAt.orEmpty()}" },
@@ -212,7 +237,13 @@ fun GeoEventDto.toEntity() = HabitEventEntity(
     status = metadata?.get("status") ?: notes?.substringAfter("status=", "Completed")?.substringBefore(";") ?: "Completed",
     timestamp = recordedAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: System.currentTimeMillis(),
     note = notes.orEmpty(),
-    synced = true
+    synced = true,
+    value = null,
+    normalizedValue = null,
+    unit = null,
+    aggregationMode = null,
+    idempotencyKey = null,
+    source = "REMOTE"
 )
 
 fun AchievementEntity.toDomain() = Achievement(id, title, description, requirement, unlocked, xp)
@@ -268,7 +299,8 @@ fun VoiceCommandResponse.toDomain() = VoiceCommandResult(
             habitName = it.habitName,
             status = it.status.toHabitStatus(),
             quantity = it.quantity,
-            unit = it.unit
+            unit = it.unit,
+            idempotencyKey = UUID.randomUUID().toString()
         )
     },
     plan = plan?.let {
@@ -357,6 +389,7 @@ private fun VoiceConversationActionDto.toVoiceEventResult(): VoiceEventResult? {
         quantity = payload["duration_minutes"]?.asPayloadString()?.toDoubleOrNull()
             ?: payload["quantity"]?.asPayloadString()?.toDoubleOrNull(),
         unit = payload["unit"]?.asPayloadString() ?: payload["duration_unit"]?.asPayloadString()
+        ,idempotencyKey = payload["idempotency_key"]?.asPayloadString() ?: UUID.randomUUID().toString()
     )
 }
 

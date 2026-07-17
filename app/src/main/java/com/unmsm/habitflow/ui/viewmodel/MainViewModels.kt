@@ -18,6 +18,9 @@ import com.unmsm.habitflow.domain.habit.HabitHeatmapBuilder
 import com.unmsm.habitflow.domain.habit.HeatmapDayState
 import com.unmsm.habitflow.domain.habit.HabitFrequency
 import com.unmsm.habitflow.domain.habit.HabitFrequencyType
+import com.unmsm.habitflow.domain.habit.AggregationMode
+import com.unmsm.habitflow.domain.habit.HabitMeasurement
+import com.unmsm.habitflow.domain.habit.MeasurementType
 import com.unmsm.habitflow.ui.state.AchievementsUiState
 import com.unmsm.habitflow.ui.state.CoachUiState
 import com.unmsm.habitflow.ui.state.EditProfileUiState
@@ -166,6 +169,7 @@ class HabitDetailViewModel @Inject constructor(
 ) : ViewModel() {
     private val habitId = savedStateHandle.get<String>("habitId") ?: "study"
     private val _note = MutableStateFlow("")
+    private val _progressValue = MutableStateFlow("")
     private val detailData = combine(
         habitRepository.observeHabit(habitId),
         habitRepository.observeEventsForHabit(habitId),
@@ -173,9 +177,10 @@ class HabitDetailViewModel @Inject constructor(
     ) { habit, events, schedules -> Triple(habit, events, schedules) }
     val state: StateFlow<HabitDetailUiState> = combine(
         detailData,
-        _note,
+        combine(_note, _progressValue) { note, progress -> note to progress },
         habitRepository.observeTimezone()
-    ) { data, note, timezone ->
+    ) { data, input, timezone ->
+        val (note, progressValue) = input
         val (habit, events, schedules) = data
         val zoneId = runCatching { ZoneId.of(timezone) }.getOrDefault(ZoneId.of("America/Lima"))
         val today = LocalDate.now(zoneId)
@@ -188,12 +193,23 @@ class HabitDetailViewModel @Inject constructor(
             habit = habit,
             events = events,
             note = note,
+            progressValue = progressValue,
             completionPercent = if (scheduled == 0) 0 else completed * 100 / scheduled,
             heatmap = heatmap
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HabitDetailUiState())
 
     fun updateNote(value: String) = _note.update { value }
+    fun updateProgressValue(value: String) = _progressValue.update { value }
+
+    fun recordProgress() {
+        val habit = state.value.habit ?: return
+        val value = state.value.progressValue.toDoubleOrNull() ?: return
+        viewModelScope.launch {
+            habitRepository.recordProgress(habit, value, habit.measurement.unit)
+            _progressValue.value = ""
+        }
+    }
 
     fun markToday() {
         val habit = state.value.habit ?: return
@@ -1027,6 +1043,18 @@ class ManualHabitViewModel @Inject constructor(
     fun updateEndDate(value: String) = _state.update { it.copy(endDate = value, error = null) }
     fun updateTimezone(value: String) = _state.update { it.copy(timezone = value, error = null) }
     fun updateReminderTime(value: String) = _state.update { it.copy(reminderTime = value, error = null) }
+    fun updateMeasurementType(value: String) = _state.update {
+        it.copy(measurementType = value, measurementUnit = when (value) {
+            MeasurementType.COUNT.name -> "unidades"
+            MeasurementType.DURATION.name -> "min"
+            MeasurementType.QUANTITY.name -> "ml"
+            else -> ""
+        }, error = null)
+    }
+    fun updateTargetValue(value: String) = _state.update { it.copy(targetValue = value, error = null) }
+    fun updateMeasurementUnit(value: String) = _state.update { it.copy(measurementUnit = value, error = null) }
+    fun updateAllowPartial(value: Boolean) = _state.update { it.copy(allowPartialProgress = value, error = null) }
+    fun updateAggregationMode(value: String) = _state.update { it.copy(aggregationMode = value, error = null) }
 
     fun save() {
         val current = state.value
@@ -1052,6 +1080,11 @@ class ManualHabitViewModel @Inject constructor(
             _state.update { it.copy(error = scheduleError) }
             return
         }
+        val measurement = current.toHabitMeasurement()
+        measurement.validationError()?.let { error ->
+            _state.update { it.copy(error = error) }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             habitRepository.createHabit(
@@ -1059,12 +1092,21 @@ class ManualHabitViewModel @Inject constructor(
                 icon = current.name.trim().take(2).uppercase(),
                 schedule = schedule,
                 time = current.reminderTime.ifBlank { "Sin hora" },
-                category = current.category.ifBlank { "General" }
+                category = current.category.ifBlank { "General" },
+                measurement = measurement
             )
             _state.update { it.copy(loading = false, saved = true) }
         }
     }
 }
+
+private fun ManualHabitUiState.toHabitMeasurement() = HabitMeasurement(
+    type = runCatching { MeasurementType.valueOf(measurementType) }.getOrDefault(MeasurementType.BOOLEAN),
+    targetValue = targetValue.toDoubleOrNull() ?: Double.NaN,
+    unit = measurementUnit.trim(),
+    allowPartialProgress = allowPartialProgress,
+    aggregationMode = runCatching { AggregationMode.valueOf(aggregationMode) }.getOrDefault(AggregationMode.ADD)
+)
 
 private fun ManualHabitUiState.toHabitFrequency(): HabitFrequency {
     val type = runCatching { HabitFrequencyType.valueOf(frequencyType) }.getOrDefault(HabitFrequencyType.DAILY)

@@ -68,6 +68,8 @@ import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.domain.habit.HabitHeatmap
 import com.unmsm.habitflow.domain.habit.HeatmapDayState
 import com.unmsm.habitflow.domain.habit.HabitFrequencyType
+import com.unmsm.habitflow.domain.habit.AggregationMode
+import com.unmsm.habitflow.domain.habit.MeasurementType
 import com.unmsm.habitflow.ui.components.ClayCard
 import com.unmsm.habitflow.ui.components.HabitFlowAvatar
 import com.unmsm.habitflow.ui.components.HabitFlowCategoryChip
@@ -259,9 +261,20 @@ fun HabitDetailScreen(padding: PaddingValues, viewModel: HabitDetailViewModel = 
         item {
             ClayCard {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (habit != null && habit.measurement.type != MeasurementType.BOOLEAN) {
+                        Text("Meta: ${habit.measurement.targetValue} ${habit.measurement.unit}")
+                        HabitFlowOutlinedField(
+                            state.progressValue,
+                            "Progreso en ${habit.measurement.unit}",
+                            viewModel::updateProgressValue
+                        )
+                        HabitFlowPrimaryButton("Registrar progreso", viewModel::recordProgress)
+                    }
                     HabitFlowOutlinedField(state.note, "Agregar nota", viewModel::updateNote, singleLine = false)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        HabitFlowPrimaryButton("Marcar hoy", viewModel::markToday, modifier = Modifier.weight(1f))
+                        if (habit?.measurement?.type == MeasurementType.BOOLEAN) {
+                            HabitFlowPrimaryButton("Marcar hoy", viewModel::markToday, modifier = Modifier.weight(1f))
+                        }
                         HabitFlowSecondaryButton("Guardar nota", viewModel::addNote, modifier = Modifier.weight(1f))
                     }
                 }
@@ -1208,6 +1221,45 @@ fun ManualHabitScreen(
             item { HabitFlowOutlinedField(state.endDate, "Fecha final opcional (YYYY-MM-DD)", viewModel::updateEndDate) }
         }
         item { HabitFlowOutlinedField(state.timezone, "Zona horaria", viewModel::updateTimezone) }
+        item { HabitFlowSectionHeader("Objetivo") }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf(
+                    MeasurementType.BOOLEAN to "Sí/No", MeasurementType.COUNT to "Conteo",
+                    MeasurementType.DURATION to "Duración", MeasurementType.QUANTITY to "Cantidad"
+                )) { (type, label) ->
+                    HabitFlowCategoryChip(
+                        label = label,
+                        selected = state.measurementType == type.name,
+                        onClick = { viewModel.updateMeasurementType(type.name) }
+                    )
+                }
+            }
+        }
+        if (state.measurementType != MeasurementType.BOOLEAN.name) {
+            item { HabitFlowOutlinedField(state.targetValue, "Meta", viewModel::updateTargetValue) }
+            item { HabitFlowOutlinedField(state.measurementUnit, "Unidad", viewModel::updateMeasurementUnit) }
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Permitir progreso parcial", modifier = Modifier.weight(1f))
+                    Switch(state.allowPartialProgress, viewModel::updateAllowPartial)
+                }
+            }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(listOf(
+                        AggregationMode.ADD to "Sumar", AggregationMode.SET_TOTAL to "Establecer total",
+                        AggregationMode.REPLACE to "Reemplazar"
+                    )) { (mode, label) ->
+                        HabitFlowCategoryChip(
+                            label = label,
+                            selected = state.aggregationMode == mode.name,
+                            onClick = { viewModel.updateAggregationMode(mode.name) }
+                        )
+                    }
+                }
+            }
+        }
         item { HabitFlowOutlinedField(state.reminderTime, "Hora o nota", viewModel::updateReminderTime) }
         if (state.error != null) {
             item { Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error) }

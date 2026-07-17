@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HabitFrequencyMigrationTest {
-    @Test fun migrationFiveToSixPreservesAndBackfillsLegacyFrequency() {
+    @Test fun migrationFiveToSevenPreservesFrequencyAndAddsMeasurementDefaults() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "frequency-migration-${System.nanoTime()}.db"
         val helper = FrameworkSQLiteOpenHelperFactory().create(
@@ -60,6 +60,7 @@ class HabitFrequencyMigrationTest {
             db.execSQL("INSERT INTO habits VALUES ('unknown', 'Otro', 'star', 'Cuando pueda', 'Sin hora', 'General', 1, 1, 1)")
 
             HabitFlowDatabase.MIGRATION_5_6.migrate(db)
+            HabitFlowDatabase.MIGRATION_6_7.migrate(db)
 
             db.query("SELECT id, frequencyType, weekdaysCsv, frequencyNeedsReview, frequencyOriginal FROM habits ORDER BY id").use { cursor ->
                 val rows = mutableMapOf<String, List<String>>()
@@ -75,10 +76,18 @@ class HabitFrequencyMigrationTest {
                 cursor.moveToFirst()
                 assertEquals(3, cursor.getInt(0))
             }
-            db.execSQL("PRAGMA user_version = 6")
+            db.query("SELECT measurementType, targetValue, measurementUnit, allowPartialProgress, aggregationMode FROM habits WHERE id = 'daily'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("BOOLEAN", cursor.getString(0))
+                assertEquals(1.0, cursor.getDouble(1), 0.0)
+                assertEquals("", cursor.getString(2))
+                assertEquals(0, cursor.getInt(3))
+                assertEquals("ADD", cursor.getString(4))
+            }
+            db.execSQL("PRAGMA user_version = 7")
             helper.close()
             val migrated = Room.databaseBuilder(context, HabitFlowDatabase::class.java, name)
-                .addMigrations(HabitFlowDatabase.MIGRATION_5_6)
+                .addMigrations(HabitFlowDatabase.MIGRATION_5_6, HabitFlowDatabase.MIGRATION_6_7)
                 .build()
             try {
                 migrated.openHelper.writableDatabase
