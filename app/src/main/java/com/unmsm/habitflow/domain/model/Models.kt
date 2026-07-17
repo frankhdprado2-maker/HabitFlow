@@ -1,5 +1,7 @@
 package com.unmsm.habitflow.domain.model
 
+import com.unmsm.habitflow.domain.habit.HabitFrequency
+
 data class User(
     val id: String,
     val name: String,
@@ -32,7 +34,8 @@ data class Habit(
     val category: String,
     val isActive: Boolean = true,
     val streak: Int = 0,
-    val bestStreak: Int = 0
+    val bestStreak: Int = 0,
+    val schedule: HabitFrequency = HabitFrequency.fromLegacy(frequency)
 )
 
 enum class HabitStatus {

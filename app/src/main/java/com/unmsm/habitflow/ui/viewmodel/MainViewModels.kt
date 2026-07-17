@@ -16,6 +16,8 @@ import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.domain.habit.HabitHeatmapBuilder
 import com.unmsm.habitflow.domain.habit.HeatmapDayState
+import com.unmsm.habitflow.domain.habit.HabitFrequency
+import com.unmsm.habitflow.domain.habit.HabitFrequencyType
 import com.unmsm.habitflow.ui.state.AchievementsUiState
 import com.unmsm.habitflow.ui.state.CoachUiState
 import com.unmsm.habitflow.ui.state.EditProfileUiState
@@ -43,6 +45,7 @@ import com.unmsm.habitflow.voice.whisper.WhisperState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.text.Normalizer
 import java.time.LocalDate
+import java.time.DayOfWeek
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Calendar
@@ -163,16 +166,21 @@ class HabitDetailViewModel @Inject constructor(
 ) : ViewModel() {
     private val habitId = savedStateHandle.get<String>("habitId") ?: "study"
     private val _note = MutableStateFlow("")
-    val state: StateFlow<HabitDetailUiState> = combine(
+    private val detailData = combine(
         habitRepository.observeHabit(habitId),
         habitRepository.observeEventsForHabit(habitId),
+        habitRepository.observeScheduleVersions(habitId)
+    ) { habit, events, schedules -> Triple(habit, events, schedules) }
+    val state: StateFlow<HabitDetailUiState> = combine(
+        detailData,
         _note,
         habitRepository.observeTimezone()
-    ) { habit, events, note, timezone ->
+    ) { data, note, timezone ->
+        val (habit, events, schedules) = data
         val zoneId = runCatching { ZoneId.of(timezone) }.getOrDefault(ZoneId.of("America/Lima"))
         val today = LocalDate.now(zoneId)
         val heatmap = habit?.let {
-            HabitHeatmapBuilder.build(it, events, YearMonth.from(today), today, zoneId)
+            HabitHeatmapBuilder.build(it, events, YearMonth.from(today), today, zoneId, schedules)
         } ?: com.unmsm.habitflow.domain.habit.HabitHeatmap()
         val scheduled = heatmap.days.count { it.state !in setOf(HeatmapDayState.NotScheduled, HeatmapDayState.Future) }
         val completed = heatmap.days.count { it.state == HeatmapDayState.Completed }
@@ -1008,6 +1016,16 @@ class ManualHabitViewModel @Inject constructor(
     fun updateName(value: String) = _state.update { it.copy(name = value, error = null) }
     fun updateCategory(value: String) = _state.update { it.copy(category = value, error = null) }
     fun updateFrequency(value: String) = _state.update { it.copy(frequency = value, error = null) }
+    fun updateFrequencyType(value: String) = _state.update { it.copy(frequencyType = value, error = null) }
+    fun toggleWeekday(value: String) = _state.update {
+        it.copy(weekdays = if (value in it.weekdays) it.weekdays - value else it.weekdays + value, error = null)
+    }
+    fun updateTimesPerWeek(value: String) = _state.update { it.copy(timesPerWeek = value, error = null) }
+    fun updateIntervalDays(value: String) = _state.update { it.copy(intervalDays = value, error = null) }
+    fun updateMonthlyDays(value: String) = _state.update { it.copy(monthlyDays = value, error = null) }
+    fun updateStartDate(value: String) = _state.update { it.copy(startDate = value, error = null) }
+    fun updateEndDate(value: String) = _state.update { it.copy(endDate = value, error = null) }
+    fun updateTimezone(value: String) = _state.update { it.copy(timezone = value, error = null) }
     fun updateReminderTime(value: String) = _state.update { it.copy(reminderTime = value, error = null) }
 
     fun save() {
@@ -1016,18 +1034,54 @@ class ManualHabitViewModel @Inject constructor(
             _state.update { it.copy(error = "Escribe el nombre del habito.") }
             return
         }
+        if (current.startDate.isNotBlank() && runCatching { LocalDate.parse(current.startDate.trim()) }.isFailure) {
+            _state.update { it.copy(error = "La fecha inicial debe usar YYYY-MM-DD.") }
+            return
+        }
+        if (current.endDate.isNotBlank() && runCatching { LocalDate.parse(current.endDate.trim()) }.isFailure) {
+            _state.update { it.copy(error = "La fecha final debe usar YYYY-MM-DD.") }
+            return
+        }
+        if (runCatching { ZoneId.of(current.timezone.trim()) }.isFailure) {
+            _state.update { it.copy(error = "La zona horaria no es válida.") }
+            return
+        }
+        val schedule = current.toHabitFrequency()
+        val scheduleError = schedule.validationError()
+        if (scheduleError != null) {
+            _state.update { it.copy(error = scheduleError) }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             habitRepository.createHabit(
                 name = current.name.trim(),
                 icon = current.name.trim().take(2).uppercase(),
-                frequency = current.frequency.ifBlank { "Diario" },
+                schedule = schedule,
                 time = current.reminderTime.ifBlank { "Sin hora" },
                 category = current.category.ifBlank { "General" }
             )
             _state.update { it.copy(loading = false, saved = true) }
         }
     }
+}
+
+private fun ManualHabitUiState.toHabitFrequency(): HabitFrequency {
+    val type = runCatching { HabitFrequencyType.valueOf(frequencyType) }.getOrDefault(HabitFrequencyType.DAILY)
+    val zone = runCatching { ZoneId.of(timezone.trim()) }.getOrDefault(ZoneId.of("America/Lima"))
+    val parsedStart = startDate.trim().takeIf(String::isNotBlank)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    val parsedEnd = endDate.trim().takeIf(String::isNotBlank)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    return HabitFrequency(
+        type = type,
+        weekdays = weekdays.mapNotNull { runCatching { DayOfWeek.valueOf(it) }.getOrNull() }.toSet(),
+        timesPerWeek = timesPerWeek.toIntOrNull(),
+        intervalDays = intervalDays.toIntOrNull(),
+        monthlyDays = monthlyDays.split(",").mapNotNull { it.trim().toIntOrNull() }.toSet(),
+        startDate = parsedStart,
+        endDate = parsedEnd,
+        timezone = zone.id,
+        effectiveFrom = parsedStart ?: LocalDate.now(zone)
+    )
 }
 
 private const val DAY_MS = 86_400_000L

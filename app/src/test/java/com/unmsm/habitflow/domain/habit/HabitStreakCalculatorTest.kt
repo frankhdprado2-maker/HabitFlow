@@ -54,7 +54,7 @@ class HabitStreakCalculatorTest {
     }
 
     @Test fun nonScheduledDayDoesNotIncreaseAWeekdayHabit() {
-        val weekdays = daily.copy(frequency = "Lun-Vie")
+        val weekdays = daily.copy(frequency = "Lun-Vie", schedule = HabitFrequency.fromLegacy("Lun-Vie"))
         val saturday = LocalDate.of(2026, 7, 18)
         val metrics = HabitStreakCalculator.calculate(
             weekdays,
@@ -115,7 +115,10 @@ class HabitStreakCalculatorTest {
     }
 
     @Test fun timesPerWeekUsesConsecutiveSatisfiedWeeksNotDailyStreaks() {
-        val weekly = daily.copy(frequency = "3 veces por semana")
+        val weekly = daily.copy(
+            frequency = "3 veces por semana",
+            schedule = HabitFrequency.fromLegacy("3 veces por semana")
+        )
         val events = listOf(0L, 1L, 2L, 7L, 8L, 9L).map { daysAgo ->
             event(today.minusDays(daysAgo), HabitStatus.Completed)
         }

@@ -4,6 +4,7 @@ import com.unmsm.habitflow.data.local.entity.AchievementEntity
 import com.unmsm.habitflow.data.local.entity.CosmeticRewardEntity
 import com.unmsm.habitflow.data.local.entity.HabitEntity
 import com.unmsm.habitflow.data.local.entity.HabitEventEntity
+import com.unmsm.habitflow.data.local.entity.HabitScheduleVersionEntity
 import com.unmsm.habitflow.data.local.entity.NotificationEntity
 import com.unmsm.habitflow.data.local.entity.PlanRecommendationEntity
 import com.unmsm.habitflow.data.local.entity.UserProfileEntity
@@ -27,7 +28,11 @@ import com.unmsm.habitflow.domain.model.User
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.domain.model.VoicePlanResult
+import com.unmsm.habitflow.domain.habit.HabitFrequency
+import com.unmsm.habitflow.domain.habit.HabitFrequencyType
+import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
 
 fun UserDto.toDomain() = User(
     id = id.ifBlank { email },
@@ -93,9 +98,100 @@ fun UserProfileEntity.toDomain() = User(
     profileComplete = profileComplete
 )
 
-fun HabitEntity.toDomain() = Habit(id, name, icon, frequency, reminderTime, category, isActive, streak, bestStreak)
+fun HabitEntity.toDomain() = Habit(
+    id = id,
+    name = name,
+    icon = icon,
+    frequency = frequency,
+    reminderTime = reminderTime,
+    category = category,
+    isActive = isActive,
+    streak = streak,
+    bestStreak = bestStreak,
+    schedule = structuredFrequency()
+)
 
-fun Habit.toEntity() = HabitEntity(id, name, icon, frequency, reminderTime, category, isActive, streak, bestStreak)
+fun Habit.toEntity() = HabitEntity(
+    id = id,
+    name = name,
+    icon = icon,
+    frequency = schedule.displayText(),
+    reminderTime = reminderTime,
+    category = category,
+    isActive = isActive,
+    streak = streak,
+    bestStreak = bestStreak,
+    frequencyType = schedule.type.name,
+    weekdaysCsv = schedule.weekdays.joinToString(",") { it.name },
+    timesPerWeek = schedule.timesPerWeek,
+    intervalDays = schedule.intervalDays,
+    monthlyDaysCsv = schedule.monthlyDays.sorted().joinToString(","),
+    scheduleStartDate = schedule.startDate?.toString(),
+    scheduleEndDate = schedule.endDate?.toString(),
+    scheduleTimezone = schedule.timezone,
+    scheduleActive = schedule.active,
+    frequencyNeedsReview = schedule.needsReview,
+    frequencyOriginal = schedule.originalText.ifBlank { frequency },
+    scheduleEffectiveFrom = schedule.effectiveFrom?.toString()
+)
+
+fun HabitFrequency.toVersionEntity(habitId: String, id: String): HabitScheduleVersionEntity =
+    HabitScheduleVersionEntity(
+        id = id,
+        habitId = habitId,
+        frequencyType = type.name,
+        weekdaysCsv = weekdays.joinToString(",") { it.name },
+        timesPerWeek = timesPerWeek,
+        intervalDays = intervalDays,
+        monthlyDaysCsv = monthlyDays.sorted().joinToString(","),
+        startDate = startDate?.toString(),
+        endDate = endDate?.toString(),
+        timezone = timezone,
+        active = active,
+        needsReview = needsReview,
+        originalText = originalText,
+        effectiveFrom = effectiveFrom?.toString(),
+        effectiveTo = effectiveTo?.toString()
+    )
+
+fun HabitScheduleVersionEntity.toDomain(): HabitFrequency = HabitFrequency(
+    type = runCatching { HabitFrequencyType.valueOf(frequencyType) }.getOrDefault(HabitFrequencyType.LEGACY_REVIEW),
+    weekdays = weekdaysCsv.csvValues().mapNotNull { runCatching { DayOfWeek.valueOf(it) }.getOrNull() }.toSet(),
+    timesPerWeek = timesPerWeek,
+    intervalDays = intervalDays,
+    monthlyDays = monthlyDaysCsv.csvValues().mapNotNull(String::toIntOrNull).toSet(),
+    startDate = startDate.toLocalDateOrNull(),
+    endDate = endDate.toLocalDateOrNull(),
+    timezone = timezone,
+    active = active,
+    needsReview = needsReview,
+    originalText = originalText,
+    effectiveFrom = effectiveFrom.toLocalDateOrNull(),
+    effectiveTo = effectiveTo.toLocalDateOrNull()
+)
+
+private fun HabitEntity.structuredFrequency(): HabitFrequency {
+    val type = runCatching { HabitFrequencyType.valueOf(frequencyType) }.getOrDefault(HabitFrequencyType.LEGACY_REVIEW)
+    if (type == HabitFrequencyType.LEGACY_REVIEW) return HabitFrequency.fromLegacy(frequencyOriginal.ifBlank { frequency }, scheduleTimezone)
+        .copy(needsReview = true)
+    return HabitFrequency(
+        type = type,
+        weekdays = weekdaysCsv.csvValues().mapNotNull { runCatching { DayOfWeek.valueOf(it) }.getOrNull() }.toSet(),
+        timesPerWeek = timesPerWeek,
+        intervalDays = intervalDays,
+        monthlyDays = monthlyDaysCsv.csvValues().mapNotNull(String::toIntOrNull).toSet(),
+        startDate = scheduleStartDate.toLocalDateOrNull(),
+        endDate = scheduleEndDate.toLocalDateOrNull(),
+        timezone = scheduleTimezone,
+        active = scheduleActive,
+        needsReview = frequencyNeedsReview,
+        originalText = frequencyOriginal.ifBlank { frequency },
+        effectiveFrom = scheduleEffectiveFrom.toLocalDateOrNull()
+    )
+}
+
+private fun String.csvValues() = split(",").map(String::trim).filter(String::isNotBlank)
+private fun String?.toLocalDateOrNull() = this?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
 
 fun HabitEventEntity.toDomain() = HabitEvent(
     id = id,

@@ -54,7 +54,7 @@ class HabitHeatmapBuilderTest {
     }
 
     @Test fun eventOnNonScheduledDayDoesNotInventScheduledActivity() {
-        val weekdays = habit.copy(frequency = "Lun-Vie")
+        val weekdays = habit.copy(frequency = "Lun-Vie", schedule = HabitFrequency.fromLegacy("Lun-Vie"))
         val saturday = LocalDate.of(2026, 7, 11)
         val heatmap = HabitHeatmapBuilder.build(weekdays, listOf(event(saturday, HabitStatus.Completed)), month, today, zone)
         assertEquals(HeatmapDayState.NotScheduled, heatmap.day(saturday).state)
@@ -71,6 +71,30 @@ class HabitHeatmapBuilderTest {
         val heatmap = build(event(today.minusDays(1), HabitStatus.Skipped))
         assertEquals(HeatmapDayState.Skipped, heatmap.day(today.minusDays(1)).state)
         assertEquals(HeatmapDayState.Future, heatmap.day(today.plusDays(1)).state)
+    }
+
+    @Test fun scheduleVersionsPreserveHistoricalCalendarMeaning() {
+        val oldDaily = HabitFrequency(
+            type = HabitFrequencyType.DAILY,
+            effectiveFrom = LocalDate.of(2026, 7, 1),
+            effectiveTo = LocalDate.of(2026, 7, 9)
+        )
+        val newMondays = HabitFrequency(
+            type = HabitFrequencyType.SPECIFIC_WEEKDAYS,
+            weekdays = setOf(java.time.DayOfWeek.MONDAY),
+            effectiveFrom = LocalDate.of(2026, 7, 10)
+        )
+        val heatmap = HabitHeatmapBuilder.build(
+            habit.copy(schedule = newMondays),
+            emptyList(),
+            month,
+            today,
+            zone,
+            listOf(oldDaily, newMondays)
+        )
+        assertEquals(HeatmapDayState.ScheduledEmpty, heatmap.day(LocalDate.of(2026, 7, 8)).state)
+        assertEquals(HeatmapDayState.NotScheduled, heatmap.day(LocalDate.of(2026, 7, 14).plusDays(1)).state)
+        assertEquals(HeatmapDayState.ScheduledEmpty, heatmap.day(LocalDate.of(2026, 7, 13)).state)
     }
 
     private fun build(vararg events: HabitEvent): HabitHeatmap =

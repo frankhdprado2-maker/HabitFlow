@@ -4,6 +4,7 @@ import com.unmsm.habitflow.data.local.dao.AchievementDao
 import com.unmsm.habitflow.data.local.dao.CosmeticRewardDao
 import com.unmsm.habitflow.data.local.dao.HabitDao
 import com.unmsm.habitflow.data.local.dao.HabitEventDao
+import com.unmsm.habitflow.data.local.dao.HabitScheduleDao
 import com.unmsm.habitflow.data.local.dao.NotificationDao
 import com.unmsm.habitflow.data.local.dao.PlanRecommendationDao
 import com.unmsm.habitflow.data.local.dao.UserProfileDao
@@ -11,6 +12,7 @@ import com.unmsm.habitflow.data.remote.api.HabitEventApi
 import com.unmsm.habitflow.data.remote.dto.GeoEventRequest
 import com.unmsm.habitflow.data.toDomain
 import com.unmsm.habitflow.data.toEntity
+import com.unmsm.habitflow.data.toVersionEntity
 import com.unmsm.habitflow.domain.model.Achievement
 import com.unmsm.habitflow.domain.model.AppNotification
 import com.unmsm.habitflow.domain.model.CosmeticReward
@@ -23,6 +25,7 @@ import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.domain.model.VoicePlanResult
 import com.unmsm.habitflow.domain.habit.HabitStreakCalculator
+import com.unmsm.habitflow.domain.habit.HabitFrequency
 import com.unmsm.habitflow.util.AppResult
 import java.time.LocalDate
 import java.time.ZoneId
@@ -38,6 +41,7 @@ import kotlinx.coroutines.sync.withLock
 class HabitRepository @Inject constructor(
     private val habitDao: HabitDao,
     private val eventDao: HabitEventDao,
+    private val habitScheduleDao: HabitScheduleDao,
     private val achievementDao: AchievementDao,
     private val notificationDao: NotificationDao,
     private val planRecommendationDao: PlanRecommendationDao,
@@ -63,6 +67,9 @@ class HabitRepository @Inject constructor(
 
     fun observeEventsForHabit(habitId: String): Flow<List<HabitEvent>> =
         eventDao.observeForHabit(habitId).map { events -> events.map { it.toDomain() } }
+
+    fun observeScheduleVersions(habitId: String): Flow<List<HabitFrequency>> =
+        habitScheduleDao.observeVersionsForHabit(habitId).map { versions -> versions.map { it.toDomain() } }
 
     fun observeAchievements(): Flow<List<Achievement>> =
         achievementDao.observeAll().map { items -> items.map { it.toDomain() } }
@@ -163,17 +170,44 @@ class HabitRepository @Inject constructor(
     }
 
     suspend fun createHabit(name: String, icon: String, frequency: String, time: String, category: String) {
+        createHabit(name, icon, HabitFrequency.fromLegacy(frequency), time, category)
+    }
+
+    suspend fun createHabit(name: String, icon: String, schedule: HabitFrequency, time: String, category: String) {
+        require(schedule.validationError() == null) { schedule.validationError().orEmpty() }
+        val habitId = UUID.randomUUID().toString()
         habitDao.upsert(
             Habit(
-                id = UUID.randomUUID().toString(),
+                id = habitId,
                 name = name,
                 icon = icon,
-                frequency = frequency,
+                frequency = schedule.displayText(),
                 reminderTime = time,
-                category = category
+                category = category,
+                schedule = schedule
             ).toEntity()
         )
+        habitScheduleDao.upsert(schedule.toVersionEntity(habitId, UUID.randomUUID().toString()))
     }
+
+    suspend fun updateHabitSchedule(habitId: String, schedule: HabitFrequency, effectiveFrom: LocalDate): AppResult<Unit> =
+        runCatching {
+            require(schedule.validationError() == null) { schedule.validationError().orEmpty() }
+            val habit = habitDao.findById(habitId)?.toDomain() ?: error("No se encontró el hábito.")
+            val versionedSchedule = schedule.copy(effectiveFrom = effectiveFrom, effectiveTo = null)
+            habitScheduleDao.closeCurrentVersion(habitId, effectiveFrom.minusDays(1).toString())
+            habitScheduleDao.upsert(versionedSchedule.toVersionEntity(habitId, UUID.randomUUID().toString()))
+            habitDao.upsert(
+                habit.copy(
+                    frequency = versionedSchedule.displayText(),
+                    schedule = versionedSchedule
+                ).toEntity()
+            )
+            recalculateStreak(habitId, userZoneId())
+        }.fold(
+            onSuccess = { AppResult.Success(Unit) },
+            onFailure = { AppResult.Error(it.message ?: "No se pudo actualizar la frecuencia.", it) }
+        )
 
     suspend fun applyVoiceCommand(result: VoiceCommandResult): AppResult<HabitEvent>? {
         if (result.intent != "registrar_habito") return null
@@ -270,7 +304,8 @@ class HabitRepository @Inject constructor(
     private suspend fun recalculateStreak(habitId: String, zoneId: ZoneId) {
         val habit = habitDao.findById(habitId)?.toDomain() ?: return
         val events = eventDao.forHabitOnce(habitId).map { it.toDomain() }
-        val metrics = HabitStreakCalculator.calculate(habit, events, LocalDate.now(zoneId), zoneId)
+        val versions = habitScheduleDao.versionsForHabit(habitId).map { it.toDomain() }
+        val metrics = HabitStreakCalculator.calculate(habit, events, LocalDate.now(zoneId), zoneId, versions)
         habitDao.upsert(habit.copy(streak = metrics.currentStreak, bestStreak = metrics.bestStreak).toEntity())
     }
 

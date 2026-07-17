@@ -67,6 +67,7 @@ import androidx.lifecycle.LifecycleOwner
 import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.domain.habit.HabitHeatmap
 import com.unmsm.habitflow.domain.habit.HeatmapDayState
+import com.unmsm.habitflow.domain.habit.HabitFrequencyType
 import com.unmsm.habitflow.ui.components.ClayCard
 import com.unmsm.habitflow.ui.components.HabitFlowAvatar
 import com.unmsm.habitflow.ui.components.HabitFlowCategoryChip
@@ -1150,7 +1151,63 @@ fun ManualHabitScreen(
         }
         item { HabitFlowOutlinedField(state.name, "Nombre del hábito", viewModel::updateName) }
         item { HabitFlowOutlinedField(state.category, "Categoría", viewModel::updateCategory) }
-        item { HabitFlowOutlinedField(state.frequency, "Frecuencia", viewModel::updateFrequency) }
+        item { HabitFlowSectionHeader("Frecuencia") }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(
+                    listOf(
+                        HabitFrequencyType.DAILY to "Diario",
+                        HabitFrequencyType.SPECIFIC_WEEKDAYS to "Días",
+                        HabitFrequencyType.TIMES_PER_WEEK to "Por semana",
+                        HabitFrequencyType.INTERVAL_DAYS to "Intervalo",
+                        HabitFrequencyType.MONTHLY_DATES to "Mensual",
+                        HabitFrequencyType.ONE_TIME to "Una vez"
+                    )
+                ) { (type, label) ->
+                    HabitFlowCategoryChip(
+                        label,
+                        selected = state.frequencyType == type.name,
+                        onClick = { viewModel.updateFrequencyType(type.name) }
+                    )
+                }
+            }
+        }
+        when (state.frequencyType) {
+            HabitFrequencyType.SPECIFIC_WEEKDAYS.name -> item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(
+                        listOf(
+                            "MONDAY" to "Lun", "TUESDAY" to "Mar", "WEDNESDAY" to "Mié",
+                            "THURSDAY" to "Jue", "FRIDAY" to "Vie", "SATURDAY" to "Sáb", "SUNDAY" to "Dom"
+                        )
+                    ) { (day, label) ->
+                        HabitFlowCategoryChip(
+                            label = label,
+                            selected = day in state.weekdays,
+                            onClick = { viewModel.toggleWeekday(day) }
+                        )
+                    }
+                }
+            }
+            HabitFrequencyType.TIMES_PER_WEEK.name -> item {
+                HabitFlowOutlinedField(state.timesPerWeek, "Veces por semana (1-7)", viewModel::updateTimesPerWeek)
+            }
+            HabitFrequencyType.INTERVAL_DAYS.name -> item {
+                HabitFlowOutlinedField(state.intervalDays, "Cada cuántos días", viewModel::updateIntervalDays)
+            }
+            HabitFrequencyType.MONTHLY_DATES.name -> item {
+                HabitFlowOutlinedField(state.monthlyDays, "Días del mes, separados por coma", viewModel::updateMonthlyDays)
+            }
+        }
+        if (state.frequencyType == HabitFrequencyType.INTERVAL_DAYS.name ||
+            state.frequencyType == HabitFrequencyType.ONE_TIME.name
+        ) {
+            item { HabitFlowOutlinedField(state.startDate, "Fecha inicial (YYYY-MM-DD)", viewModel::updateStartDate) }
+        }
+        if (state.frequencyType != HabitFrequencyType.ONE_TIME.name) {
+            item { HabitFlowOutlinedField(state.endDate, "Fecha final opcional (YYYY-MM-DD)", viewModel::updateEndDate) }
+        }
+        item { HabitFlowOutlinedField(state.timezone, "Zona horaria", viewModel::updateTimezone) }
         item { HabitFlowOutlinedField(state.reminderTime, "Hora o nota", viewModel::updateReminderTime) }
         if (state.error != null) {
             item { Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error) }

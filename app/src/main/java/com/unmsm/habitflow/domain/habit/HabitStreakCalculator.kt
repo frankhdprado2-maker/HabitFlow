@@ -3,12 +3,10 @@ package com.unmsm.habitflow.domain.habit
 import com.unmsm.habitflow.domain.model.Habit
 import com.unmsm.habitflow.domain.model.HabitEvent
 import com.unmsm.habitflow.domain.model.HabitStatus
-import java.text.Normalizer
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.WeekFields
-import java.util.Locale
 
 data class HabitStreakMetrics(
     val currentStreak: Int = 0,
@@ -22,37 +20,39 @@ data class HabitStreakMetrics(
 enum class StreakUnit { Day, Week }
 
 object HabitStreakCalculator {
-    fun isScheduled(habit: Habit, date: LocalDate): Boolean =
-        LegacySchedule.parse(habit.frequency).isScheduled(date)
+    fun isScheduled(habit: Habit, date: LocalDate, scheduleHistory: List<HabitFrequency> = emptyList()): Boolean =
+        scheduleFor(habit, date, scheduleHistory).isScheduled(date)
 
     fun calculate(
         habit: Habit,
         events: List<HabitEvent>,
         today: LocalDate,
-        zoneId: ZoneId
+        zoneId: ZoneId,
+        scheduleHistory: List<HabitFrequency> = emptyList()
     ): HabitStreakMetrics {
-        val schedule = LegacySchedule.parse(habit.frequency)
+        val schedule = habit.schedule
         val completedDates = events.asSequence()
             .filter { it.habitId == habit.id && it.status == HabitStatus.Completed }
             .map { it.localDate(zoneId) }
             .filter { !it.isAfter(today) }
             .toSet()
-        if (completedDates.isEmpty() || schedule == LegacySchedule.Unknown) return HabitStreakMetrics()
-        return when (schedule) {
-            is LegacySchedule.TimesPerWeek -> weeklyMetrics(completedDates, schedule.times, today)
-            else -> dailyMetrics(schedule, completedDates, today)
+        if (completedDates.isEmpty() || schedule.type == HabitFrequencyType.LEGACY_REVIEW) return HabitStreakMetrics()
+        return when (schedule.type) {
+            HabitFrequencyType.TIMES_PER_WEEK -> weeklyMetrics(completedDates, schedule.timesPerWeek ?: return HabitStreakMetrics(), today)
+            else -> dailyMetrics(habit, scheduleHistory, completedDates, today)
         }
     }
 
     private fun dailyMetrics(
-        schedule: LegacySchedule,
+        habit: Habit,
+        scheduleHistory: List<HabitFrequency>,
         completedDates: Set<LocalDate>,
         today: LocalDate
     ): HabitStreakMetrics {
         val firstDate = completedDates.minOrNull() ?: return HabitStreakMetrics()
         val scheduled = generateSequence(firstDate) { date ->
             date.plusDays(1).takeUnless { it.isAfter(today) }
-        }.filter(schedule::isScheduled).toList()
+        }.filter { isScheduled(habit, it, scheduleHistory) }.toList()
         if (scheduled.isEmpty()) return HabitStreakMetrics()
         val completedScheduled = scheduled.filter(completedDates::contains).toSet()
 
@@ -121,66 +121,12 @@ object HabitStreakCalculator {
             unit = StreakUnit.Week
         )
     }
-}
 
-private sealed interface LegacySchedule {
-    fun isScheduled(date: LocalDate): Boolean
-
-    data object Daily : LegacySchedule {
-        override fun isScheduled(date: LocalDate) = true
-    }
-
-    data class Weekdays(val days: Set<DayOfWeek>) : LegacySchedule {
-        override fun isScheduled(date: LocalDate) = date.dayOfWeek in days
-    }
-
-    data class TimesPerWeek(val times: Int) : LegacySchedule {
-        override fun isScheduled(date: LocalDate) = true
-    }
-
-    data object Unknown : LegacySchedule {
-        override fun isScheduled(date: LocalDate) = false
-    }
-
-    companion object {
-        fun parse(value: String): LegacySchedule {
-            val normalized = value.normalized()
-            if (normalized in setOf("diario", "todos los dias", "cada dia")) return Daily
-            Regex("^(\\d+) veces?( por)? semana$").matchEntire(normalized)?.let { match ->
-                return TimesPerWeek(match.groupValues[1].toInt().coerceIn(1, 7))
-            }
-            val tokens = normalized.split("-").map(String::trim).filter(String::isNotEmpty)
-            if (tokens.size == 2) {
-                val start = tokens[0].toDayOfWeek()
-                val end = tokens[1].toDayOfWeek()
-                if (start != null && end != null) {
-                    val days = generateSequence(start) { day ->
-                        if (day == end) null else DayOfWeek.of(day.value % 7 + 1)
-                    }.toSet()
-                    return Weekdays(days)
-                }
-            }
-            val listedDays = tokens.mapNotNull(String::toDayOfWeek).toSet()
-            return if (listedDays.isNotEmpty() && listedDays.size == tokens.size) Weekdays(listedDays) else Unknown
-        }
-    }
+    private fun scheduleFor(habit: Habit, date: LocalDate, history: List<HabitFrequency>): HabitFrequency =
+        history.filter { it.isEffectiveOn(date) }
+            .maxByOrNull { it.effectiveFrom ?: LocalDate.MIN }
+            ?: habit.schedule
 }
 
 private fun HabitEvent.localDate(zoneId: ZoneId): LocalDate =
     java.time.Instant.ofEpochMilli(timestamp).atZone(zoneId).toLocalDate()
-
-private fun String.normalized(): String =
-    Normalizer.normalize(lowercase(Locale("es", "PE")).trim(), Normalizer.Form.NFD)
-        .replace(Regex("\\p{Mn}+"), "")
-        .replace(Regex("\\s+"), " ")
-
-private fun String.toDayOfWeek(): DayOfWeek? = when (normalized().take(3)) {
-    "lun" -> DayOfWeek.MONDAY
-    "mar" -> DayOfWeek.TUESDAY
-    "mie" -> DayOfWeek.WEDNESDAY
-    "jue" -> DayOfWeek.THURSDAY
-    "vie" -> DayOfWeek.FRIDAY
-    "sab" -> DayOfWeek.SATURDAY
-    "dom" -> DayOfWeek.SUNDAY
-    else -> null
-}

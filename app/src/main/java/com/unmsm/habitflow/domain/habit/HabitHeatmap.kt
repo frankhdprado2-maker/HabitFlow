@@ -34,7 +34,8 @@ object HabitHeatmapBuilder {
         events: List<HabitEvent>,
         month: YearMonth,
         today: LocalDate,
-        zoneId: ZoneId
+        zoneId: ZoneId,
+        scheduleHistory: List<HabitFrequency> = emptyList()
     ): HabitHeatmap {
         val eventsByDate = events.asSequence()
             .filter { it.habitId == habit.id }
@@ -44,7 +45,7 @@ object HabitHeatmapBuilder {
             val dayEvents = eventsByDate[date].orEmpty()
             val state = when {
                 date.isAfter(today) -> HeatmapDayState.Future
-                !HabitStreakCalculator.isScheduled(habit, date) -> HeatmapDayState.NotScheduled
+                !HabitStreakCalculator.isScheduled(habit, date, scheduleHistory) -> HeatmapDayState.NotScheduled
                 dayEvents.any { it.status == HabitStatus.Completed } -> HeatmapDayState.Completed
                 dayEvents.any { it.status == HabitStatus.Pending } -> HeatmapDayState.Partial
                 dayEvents.any { it.status == HabitStatus.Skipped || it.status == HabitStatus.Failed } -> HeatmapDayState.Skipped

@@ -1,6 +1,7 @@
 package com.unmsm.habitflow.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "habits")
@@ -13,7 +14,38 @@ data class HabitEntity(
     val category: String,
     val isActive: Boolean,
     val streak: Int,
-    val bestStreak: Int
+    val bestStreak: Int,
+    val frequencyType: String,
+    val weekdaysCsv: String,
+    val timesPerWeek: Int?,
+    val intervalDays: Int?,
+    val monthlyDaysCsv: String,
+    val scheduleStartDate: String?,
+    val scheduleEndDate: String?,
+    val scheduleTimezone: String,
+    val scheduleActive: Boolean,
+    val frequencyNeedsReview: Boolean,
+    val frequencyOriginal: String,
+    val scheduleEffectiveFrom: String?
+)
+
+@Entity(tableName = "habit_schedule_versions", indices = [Index("habitId")])
+data class HabitScheduleVersionEntity(
+    @PrimaryKey val id: String,
+    val habitId: String,
+    val frequencyType: String,
+    val weekdaysCsv: String,
+    val timesPerWeek: Int?,
+    val intervalDays: Int?,
+    val monthlyDaysCsv: String,
+    val startDate: String?,
+    val endDate: String?,
+    val timezone: String,
+    val active: Boolean,
+    val needsReview: Boolean,
+    val originalText: String,
+    val effectiveFrom: String?,
+    val effectiveTo: String?
 )
 
 @Entity(tableName = "habit_events")
