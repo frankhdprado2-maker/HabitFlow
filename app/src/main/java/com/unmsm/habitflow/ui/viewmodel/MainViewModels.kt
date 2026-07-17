@@ -14,6 +14,8 @@ import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.domain.model.InterpretedHabit
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
+import com.unmsm.habitflow.domain.habit.HabitHeatmapBuilder
+import com.unmsm.habitflow.domain.habit.HeatmapDayState
 import com.unmsm.habitflow.ui.state.AchievementsUiState
 import com.unmsm.habitflow.ui.state.CoachUiState
 import com.unmsm.habitflow.ui.state.EditProfileUiState
@@ -41,6 +43,8 @@ import com.unmsm.habitflow.voice.whisper.WhisperState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.text.Normalizer
 import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
 import java.util.Calendar
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -162,9 +166,23 @@ class HabitDetailViewModel @Inject constructor(
     val state: StateFlow<HabitDetailUiState> = combine(
         habitRepository.observeHabit(habitId),
         habitRepository.observeEventsForHabit(habitId),
-        _note
-    ) { habit, events, note ->
-        HabitDetailUiState(habit = habit, events = events, note = note)
+        _note,
+        habitRepository.observeTimezone()
+    ) { habit, events, note, timezone ->
+        val zoneId = runCatching { ZoneId.of(timezone) }.getOrDefault(ZoneId.of("America/Lima"))
+        val today = LocalDate.now(zoneId)
+        val heatmap = habit?.let {
+            HabitHeatmapBuilder.build(it, events, YearMonth.from(today), today, zoneId)
+        } ?: com.unmsm.habitflow.domain.habit.HabitHeatmap()
+        val scheduled = heatmap.days.count { it.state !in setOf(HeatmapDayState.NotScheduled, HeatmapDayState.Future) }
+        val completed = heatmap.days.count { it.state == HeatmapDayState.Completed }
+        HabitDetailUiState(
+            habit = habit,
+            events = events,
+            note = note,
+            completionPercent = if (scheduled == 0) 0 else completed * 100 / scheduled,
+            heatmap = heatmap
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HabitDetailUiState())
 
     fun updateNote(value: String) = _note.update { value }

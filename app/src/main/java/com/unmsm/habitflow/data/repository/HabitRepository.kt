@@ -76,6 +76,9 @@ class HabitRepository @Inject constructor(
     fun observeNotifications(): Flow<List<AppNotification>> =
         notificationDao.observeAll().map { items -> items.map { it.toDomain() } }
 
+    fun observeTimezone(): Flow<String> =
+        userProfileDao.observeCurrent().map { profile -> profile?.timezone?.takeIf { it.isNotBlank() } ?: DEFAULT_TIMEZONE }
+
     suspend fun ensureSeedData() {
         if (habitDao.count() == 0) {
             habitDao.upsertAll(

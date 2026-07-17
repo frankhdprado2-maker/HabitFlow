@@ -8,6 +8,7 @@ import com.unmsm.habitflow.domain.model.Habit
 import com.unmsm.habitflow.domain.model.HabitEvent
 import com.unmsm.habitflow.domain.model.PlanRecommendation
 import com.unmsm.habitflow.domain.model.User
+import com.unmsm.habitflow.domain.habit.HabitHeatmap
 import com.unmsm.habitflow.voice.VoiceErrorType
 
 sealed interface GoogleLoginState {
@@ -60,7 +61,8 @@ data class HabitDetailUiState(
     val habit: Habit? = null,
     val events: List<HabitEvent> = emptyList(),
     val note: String = "",
-    val completionPercent: Int = 0
+    val completionPercent: Int = 0,
+    val heatmap: HabitHeatmap = HabitHeatmap()
 )
 
 data class StatsUiState(

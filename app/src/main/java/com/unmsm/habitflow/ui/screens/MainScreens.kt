@@ -65,6 +65,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import com.unmsm.habitflow.domain.model.HabitStatus
+import com.unmsm.habitflow.domain.habit.HabitHeatmap
+import com.unmsm.habitflow.domain.habit.HeatmapDayState
 import com.unmsm.habitflow.ui.components.ClayCard
 import com.unmsm.habitflow.ui.components.HabitFlowAvatar
 import com.unmsm.habitflow.ui.components.HabitFlowCategoryChip
@@ -251,7 +253,7 @@ fun HabitDetailScreen(padding: PaddingValues, viewModel: HabitDetailViewModel = 
         }
         item {
             HabitFlowSectionHeader("Heatmap del mes")
-            Heatmap()
+            Heatmap(state.heatmap)
         }
         item {
             ClayCard {
@@ -1216,17 +1218,40 @@ private fun AccentChoiceChip(
 }
 
 @Composable
-private fun Heatmap() {
+private fun Heatmap(heatmap: HabitHeatmap) {
+    if (!heatmap.hasActivity) {
+        Text(
+            "Todavía no tienes actividad registrada.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+    val leadingEmptyDays = heatmap.days.firstOrNull()?.date?.dayOfWeek?.value?.minus(1) ?: 0
+    val cells = List(leadingEmptyDays) { null } + heatmap.days
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        repeat(5) { row ->
+        cells.chunked(7).forEach { week ->
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                repeat(7) { col ->
-                    val active = (row + col) % 3 != 0
+                week.forEach { day ->
+                    if (day == null) {
+                        Box(Modifier.size(32.dp))
+                        return@forEach
+                    }
+                    val color = when (day.state) {
+                        HeatmapDayState.Completed -> MaterialTheme.colorScheme.tertiary
+                        HeatmapDayState.Partial -> MaterialTheme.colorScheme.secondary
+                        HeatmapDayState.Skipped -> MaterialTheme.colorScheme.errorContainer
+                        HeatmapDayState.ScheduledEmpty -> MaterialTheme.colorScheme.surfaceVariant
+                        HeatmapDayState.NotScheduled -> MaterialTheme.colorScheme.surfaceContainer
+                        HeatmapDayState.Future -> MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.45f)
+                    }
                     Box(
                         Modifier.size(32.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(if (active) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant)
-                    )
+                            .background(color),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(day.date.dayOfMonth.toString(), style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }

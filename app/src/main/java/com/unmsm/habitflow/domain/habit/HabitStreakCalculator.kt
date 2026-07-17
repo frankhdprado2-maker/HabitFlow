@@ -22,6 +22,9 @@ data class HabitStreakMetrics(
 enum class StreakUnit { Day, Week }
 
 object HabitStreakCalculator {
+    fun isScheduled(habit: Habit, date: LocalDate): Boolean =
+        LegacySchedule.parse(habit.frequency).isScheduled(date)
+
     fun calculate(
         habit: Habit,
         events: List<HabitEvent>,
