@@ -31,6 +31,7 @@ import com.unmsm.habitflow.domain.habit.HabitMeasurement
 import com.unmsm.habitflow.domain.habit.MeasurementNormalizer
 import com.unmsm.habitflow.domain.habit.MeasurementType
 import com.unmsm.habitflow.util.AppResult
+import com.unmsm.habitflow.work.HabitReminderScheduler
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -51,7 +52,8 @@ class HabitRepository @Inject constructor(
     private val planRecommendationDao: PlanRecommendationDao,
     private val cosmeticRewardDao: CosmeticRewardDao,
     private val userProfileDao: UserProfileDao,
-    private val eventApi: HabitEventApi
+    private val eventApi: HabitEventApi,
+    private val reminderScheduler: HabitReminderScheduler
 ) {
     private val eventMutationMutex = Mutex()
 
@@ -59,6 +61,7 @@ class HabitRepository @Inject constructor(
         habitDao.observeActive().map { habits -> habits.map { it.toDomain() } }
 
     suspend fun activeHabits(): List<Habit> = habitDao.activeOnce().map { it.toDomain() }
+    suspend fun habitById(id: String): Habit? = habitDao.findById(id)?.toDomain()
 
     suspend fun recentEvents(limit: Int = 80): List<HabitEvent> = eventDao.recent(limit).map { it.toDomain() }
 
@@ -192,8 +195,7 @@ class HabitRepository @Inject constructor(
         require(schedule.validationError() == null) { schedule.validationError().orEmpty() }
         require(measurement.validationError() == null) { measurement.validationError().orEmpty() }
         val habitId = UUID.randomUUID().toString()
-        habitDao.upsert(
-            Habit(
+        val habit = Habit(
                 id = habitId,
                 name = name,
                 icon = icon,
@@ -202,9 +204,10 @@ class HabitRepository @Inject constructor(
                 category = category,
                 schedule = schedule,
                 measurement = measurement
-            ).toEntity()
-        )
+            )
+        habitDao.upsert(habit.toEntity())
         habitScheduleDao.upsert(schedule.toVersionEntity(habitId, UUID.randomUUID().toString()))
+        reminderScheduler.schedule(habit)
     }
 
     suspend fun updateHabitSchedule(habitId: String, schedule: HabitFrequency, effectiveFrom: LocalDate): AppResult<Unit> =
@@ -220,6 +223,7 @@ class HabitRepository @Inject constructor(
                     schedule = versionedSchedule
                 ).toEntity()
             )
+            habitDao.findById(habitId)?.toDomain()?.let(reminderScheduler::schedule)
             recalculateStreak(habitId, userZoneId())
         }.fold(
             onSuccess = { AppResult.Success(Unit) },
