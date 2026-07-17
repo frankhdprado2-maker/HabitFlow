@@ -174,7 +174,15 @@ class HabitDetailViewModel @Inject constructor(
         viewModelScope.launch { habitRepository.markHabit(habit, HabitStatus.Completed, state.value.note) }
     }
 
-    fun addNote() = markToday()
+    fun addNote() {
+        val habit = state.value.habit ?: return
+        val note = state.value.note.trim()
+        if (note.isBlank()) return
+        viewModelScope.launch {
+            habitRepository.addNote(habit, note)
+            _note.value = ""
+        }
+    }
 }
 
 @HiltViewModel
