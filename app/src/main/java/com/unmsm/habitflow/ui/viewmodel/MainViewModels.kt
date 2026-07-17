@@ -21,6 +21,7 @@ import com.unmsm.habitflow.domain.habit.HabitFrequencyType
 import com.unmsm.habitflow.domain.habit.AggregationMode
 import com.unmsm.habitflow.domain.habit.HabitMeasurement
 import com.unmsm.habitflow.domain.habit.MeasurementType
+import com.unmsm.habitflow.domain.habit.HabitStatisticsCalculator
 import com.unmsm.habitflow.ui.state.AchievementsUiState
 import com.unmsm.habitflow.ui.state.CoachUiState
 import com.unmsm.habitflow.ui.state.EditProfileUiState
@@ -236,38 +237,30 @@ class StatsViewModel @Inject constructor(
     val state: StateFlow<StatsUiState> = combine(
         habitRepository.observeHabits(),
         habitRepository.observeEvents(),
-        coach
-    ) { habits, events, coachState ->
+        coach,
+        habitRepository.observeTimezone()
+    ) { habits, events, coachState, timezone ->
+            val zoneId = runCatching { ZoneId.of(timezone) }.getOrDefault(ZoneId.of("America/Lima"))
+            val today = LocalDate.now(zoneId)
             val completedEvents = events.filter { it.status == HabitStatus.Completed }
-            val weekStart = startOfToday() - 6 * DAY_MS
-            val previousWeekStart = weekStart - 7 * DAY_MS
+            val weekStartDate = today.minusDays(6)
             val weekly = (0..6).map { index ->
-                val dayStart = weekStart + index * DAY_MS
-                val dayEnd = dayStart + DAY_MS
-                completedEvents.count { it.timestamp in dayStart until dayEnd }
+                val date = weekStartDate.plusDays(index.toLong())
+                habits.count { habit -> HabitStatisticsCalculator.calculate(habit, events, date, date, zoneId).completedDays == 1 }
             }
-            val currentWeek = completedEvents.count { it.timestamp >= weekStart }
-            val previousWeek = completedEvents.count { it.timestamp in previousWeekStart until weekStart }
-            val monthStart = startOfMonth()
-            val monthEvents = completedEvents.count { it.timestamp >= monthStart }
-            val possibleMonthSlots = (habits.size.coerceAtLeast(1) * currentDayOfMonth()).coerceAtLeast(1)
-            val recentAttempts = events
-                .filter { it.timestamp >= startOfToday() - 29 * DAY_MS }
-                .groupBy { it.habitId }
+            val currentWeek = weekly.sum()
+            val previousWeek = habits.sumOf { HabitStatisticsCalculator.calculate(it, events, weekStartDate.minusDays(7), weekStartDate.minusDays(1), zoneId).completedDays }
+            val monthStartDate = today.withDayOfMonth(1)
+            val monthStats = habits.map { HabitStatisticsCalculator.calculate(it, events, monthStartDate, today, zoneId) }
+            val scheduledMonth = monthStats.sumOf { it.scheduledDays }
+            val completedMonth = monthStats.sumOf { it.completedDays }
             val completionRates = habits.associate { habit ->
-                val attempts = recentAttempts[habit.id].orEmpty()
-                    .filter { it.status != HabitStatus.Pending }
-                val rate = if (attempts.isEmpty()) {
-                    0f
-                } else {
-                    attempts.count { it.status == HabitStatus.Completed }.toFloat() / attempts.size
-                }
-                habit.id to rate
+                habit.id to HabitStatisticsCalculator.calculate(habit, events, today.minusDays(29), today, zoneId).completionRate.toFloat()
             }
             StatsUiState(
                 currentStreak = habits.maxOfOrNull { it.streak } ?: 0,
                 bestStreak = habits.maxOfOrNull { it.bestStreak } ?: 0,
-                monthPercent = ((monthEvents.toFloat() / possibleMonthSlots) * 100).toInt().coerceIn(0, 100),
+                monthPercent = if (scheduledMonth == 0) 0 else (completedMonth * 100 / scheduledMonth),
                 weekly = weekly,
                 habits = habits,
                 totalCompleted = completedEvents.size,
