@@ -1,10 +1,36 @@
 package com.unmsm.habitflow.ui.state
 
+import com.unmsm.habitflow.voice.VoiceErrorType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceInterpretationStateTest {
+    @Test
+    fun localTranscriptionRemainsEditableAndIsNotSubmittedAutomatically() {
+        val state = VoiceUiState(
+            phase = VoiceAssistantPhase.Ready,
+            transcript = "Hoy tomé dos litros de agua"
+        )
+
+        assertEquals("Hoy tomé dos litros de agua", state.transcript)
+        assertTrue(state.messages.none { it.author == "user" })
+        assertTrue(state.interpretedHabits.isEmpty())
+        assertTrue(!state.savingInterpretation)
+    }
+
+    @Test
+    fun backendFailurePreservesLocalTranscriptionForRetry() {
+        val state = VoiceUiState(
+            phase = VoiceAssistantPhase.Error(VoiceErrorType.Network, "Render no disponible"),
+            transcript = "Ayer estudié programación durante una hora",
+            error = "Render no disponible"
+        )
+
+        assertEquals("Ayer estudié programación durante una hora", state.transcript)
+        assertEquals("Render no disponible", state.error)
+    }
+
     @Test
     fun voiceStateKeepsEditableInterpretationAcrossRecomposition() {
         val interpreted = InterpretedHabitUi(

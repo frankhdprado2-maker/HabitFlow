@@ -101,6 +101,8 @@ import com.unmsm.habitflow.ui.viewmodel.SettingsViewModel
 import com.unmsm.habitflow.ui.viewmodel.StatsViewModel
 import com.unmsm.habitflow.ui.viewmodel.VoiceViewModel
 import com.unmsm.habitflow.voice.VoiceErrorType
+import com.unmsm.habitflow.voice.MicrophonePermissionState
+import com.unmsm.habitflow.voice.microphonePermissionState
 import androidx.core.app.ActivityCompat
 import java.text.DateFormat
 import java.text.SimpleDateFormat
@@ -762,6 +764,8 @@ fun VoiceScreen(
     val lifecycleOwner = remember(context) { context.findActivity() as? LifecycleOwner }
     var typedText by rememberSaveable { mutableStateOf("") }
     var lastTranscript by rememberSaveable { mutableStateOf("") }
+    var permissionRequestedBefore by rememberSaveable { mutableStateOf(false) }
+    var permissionRequestWasRepeat by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) { viewModel.startConversation() }
     LaunchedEffect(state.transcript) {
         if (state.transcript.isNotBlank() && state.transcript != lastTranscript) {
@@ -787,9 +791,14 @@ fun VoiceScreen(
             viewModel.toggleRecording()
         } else {
             val activity = context.findActivity()
-            val permanentlyDenied = activity?.let {
-                !ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.RECORD_AUDIO)
-            } ?: false
+            val permissionState = microphonePermissionState(
+                granted = false,
+                requestedBefore = permissionRequestWasRepeat,
+                shouldShowRationale = activity?.let {
+                    ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.RECORD_AUDIO)
+                } ?: false
+            )
+            val permanentlyDenied = permissionState == MicrophonePermissionState.PermanentlyDenied
             val message = if (permanentlyDenied) {
                 "El permiso de micrófono quedó bloqueado. Ábrelo en ajustes para registrar con voz."
             } else {
@@ -810,12 +819,18 @@ fun VoiceScreen(
             )
         )
     }
-    val onMicClick = {
+    val onMicClick: () -> Unit = onMicClick@{
+        if (state.phase == VoiceAssistantPhase.PreparingModel ||
+            state.phase == VoiceAssistantPhase.Transcribing ||
+            state.phase == VoiceAssistantPhase.Processing
+        ) return@onMicClick
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         if (granted) {
             viewModel.toggleRecording()
         } else {
             viewModel.requestMicrophonePermission()
+            permissionRequestWasRepeat = permissionRequestedBefore
+            permissionRequestedBefore = true
             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
@@ -837,34 +852,50 @@ fun VoiceScreen(
                     )
                 }
                 HabitFlowVoiceOrb(
-                    listening = state.phase == VoiceAssistantPhase.Listening || state.phase is VoiceAssistantPhase.PartialResult,
-                    processing = state.phase == VoiceAssistantPhase.Processing,
+                    listening = state.phase is VoiceAssistantPhase.Recording,
+                    processing = state.phase == VoiceAssistantPhase.Processing ||
+                        state.phase == VoiceAssistantPhase.Transcribing ||
+                        state.phase == VoiceAssistantPhase.PreparingModel,
                     onClick = onMicClick
                 )
             }
         }
-        if (state.partialTranscript.isNotBlank()) {
+        if (state.phase == VoiceAssistantPhase.ModelNotPrepared || state.phase == VoiceAssistantPhase.PreparingModel) {
             item {
-                ClayCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
-                    Text(state.partialTranscript, modifier = Modifier.padding(16.dp), fontWeight = FontWeight.SemiBold)
+                ClayCard(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text("Preparando el modelo local de voz…", fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
-        if (state.phase == VoiceAssistantPhase.Listening || state.phase is VoiceAssistantPhase.PartialResult) {
+        if (state.phase is VoiceAssistantPhase.Recording) {
             item {
                 ClayCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Escuchando...", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("Puedes cancelar sin guardar nada.")
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Grabando…", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("${state.recordingDurationMillis / 1_000}.${(state.recordingDurationMillis % 1_000) / 100} s / 15 s")
+                        LinearProgressIndicator(
+                            progress = { state.audioLevel.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            HabitFlowPrimaryButton("Detener", viewModel::stopRecording, modifier = Modifier.weight(1f))
+                            HabitFlowSecondaryButton("Cancelar", viewModel::cancelListening, modifier = Modifier.weight(1f))
                         }
-                        TextButton(onClick = viewModel::cancelListening) {
-                            Text("Cancelar")
-                        }
+                    }
+                }
+            }
+        }
+        if (state.phase == VoiceAssistantPhase.Transcribing) {
+            item {
+                ClayCard(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text("Whisper está convirtiendo tu voz en texto…", fontWeight = FontWeight.SemiBold)
+                        Text("La voz se procesa localmente en tu dispositivo.")
+                        TextButton(onClick = viewModel::cancelListening) { Text("Cancelar") }
                     }
                 }
             }
@@ -963,18 +994,29 @@ fun VoiceScreen(
         item {
             ClayCard {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "La voz se procesa localmente con Whisper. HabitFlow enviará únicamente el texto cuando pulses Enviar.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     HabitFlowOutlinedField(typedText, "Transcripción editable o texto manual", { typedText = it }, singleLine = false)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HabitFlowSecondaryButton("Manual", onManual, modifier = Modifier.weight(1f))
+                        HabitFlowSecondaryButton(
+                            if (state.transcript.isBlank()) "Manual" else "Volver a grabar",
+                            if (state.transcript.isBlank()) onManual else onMicClick,
+                            modifier = Modifier.weight(1f)
+                        )
                         HabitFlowPrimaryButton(
                             "Enviar",
                             onClick = {
                                 viewModel.sendText(typedText)
-                                if (typedText.isNotBlank()) typedText = ""
                             },
                             modifier = Modifier.weight(1f),
                             enabled = typedText.isNotBlank() &&
                                 state.phase != VoiceAssistantPhase.Processing &&
+                                state.phase != VoiceAssistantPhase.Transcribing &&
+                                state.phase != VoiceAssistantPhase.PreparingModel &&
+                                state.phase !is VoiceAssistantPhase.Recording &&
                                 !state.savingInterpretation
                         )
                     }
@@ -1197,10 +1239,13 @@ private fun signedCount(value: Int): String =
 
 private fun voiceStatusLabel(phase: VoiceAssistantPhase): String =
     when (phase) {
-        VoiceAssistantPhase.Idle -> "Listo para escuchar"
+        VoiceAssistantPhase.Idle,
+        VoiceAssistantPhase.Ready -> "Listo para registrar con voz"
+        VoiceAssistantPhase.ModelNotPrepared -> "Modelo no preparado"
+        VoiceAssistantPhase.PreparingModel -> "Preparando Whisper local"
         VoiceAssistantPhase.RequestingPermission -> "Solicitando permiso"
-        VoiceAssistantPhase.Listening -> "Escuchando"
-        is VoiceAssistantPhase.PartialResult -> "Transcribiendo en vivo"
+        is VoiceAssistantPhase.Recording -> "Grabando"
+        VoiceAssistantPhase.Transcribing -> "Transcribiendo localmente"
         VoiceAssistantPhase.Processing -> "Pensando"
         VoiceAssistantPhase.AwaitingConfirmation -> "Confirmando"
         VoiceAssistantPhase.Speaking -> "Respondiendo"

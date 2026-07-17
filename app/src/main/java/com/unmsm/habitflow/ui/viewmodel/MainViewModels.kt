@@ -36,6 +36,8 @@ import com.unmsm.habitflow.voice.LocalVoiceCommandParser
 import com.unmsm.habitflow.voice.isCoachRequest
 import com.unmsm.habitflow.voice.VoiceErrorType
 import com.unmsm.habitflow.voice.VoiceController
+import com.unmsm.habitflow.voice.whisper.WhisperErrorType
+import com.unmsm.habitflow.voice.whisper.WhisperState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.text.Normalizer
 import java.time.LocalDate
@@ -442,6 +444,80 @@ class VoiceViewModel @Inject constructor(
     private var greeted = false
     private var pendingResult: VoiceCommandResult? = null
 
+    init {
+        viewModelScope.launch {
+            voiceController.state.collect { whisperState ->
+                when (whisperState) {
+                    WhisperState.ModelNotPrepared -> _state.update { it.copy(phase = VoiceAssistantPhase.ModelNotPrepared) }
+                    WhisperState.PreparingModel -> _state.update {
+                        it.copy(phase = VoiceAssistantPhase.PreparingModel, response = "Preparando el modelo local de voz…", error = null)
+                    }
+                    WhisperState.Ready -> _state.update {
+                        it.copy(
+                            phase = VoiceAssistantPhase.Ready,
+                            listening = false,
+                            recording = false,
+                            transcribing = false,
+                            response = "",
+                            error = null
+                        )
+                    }
+                    is WhisperState.Recording -> _state.update {
+                        it.copy(
+                            phase = VoiceAssistantPhase.Recording(whisperState.durationMillis, whisperState.audioLevel),
+                            listening = true,
+                            recording = true,
+                            transcribing = false,
+                            recordingDurationMillis = whisperState.durationMillis,
+                            audioLevel = whisperState.audioLevel,
+                            response = "Grabando…",
+                            error = null
+                        )
+                    }
+                    WhisperState.Processing -> _state.update {
+                        it.copy(
+                            phase = VoiceAssistantPhase.Transcribing,
+                            listening = false,
+                            recording = false,
+                            transcribing = true,
+                            response = "Whisper está convirtiendo tu voz en texto…",
+                            error = null
+                        )
+                    }
+                    is WhisperState.Result -> _state.update {
+                        it.copy(
+                            phase = VoiceAssistantPhase.Ready,
+                            transcript = whisperState.text,
+                            partialTranscript = "",
+                            listening = false,
+                            recording = false,
+                            transcribing = false,
+                            response = "Revisa la transcripción antes de enviarla.",
+                            error = null
+                        )
+                    }
+                    is WhisperState.Error -> showError(
+                        whisperState.error.message,
+                        whisperState.error.type.toVoiceErrorType()
+                    )
+                    WhisperState.Cancelled -> _state.update {
+                        it.copy(
+                            phase = VoiceAssistantPhase.Ready,
+                            listening = false,
+                            recording = false,
+                            transcribing = false,
+                            recordingDurationMillis = 0,
+                            audioLevel = 0f,
+                            response = "Grabación cancelada. No se envió audio fuera de tu dispositivo.",
+                            error = null
+                        )
+                    }
+                }
+            }
+        }
+        viewModelScope.launch { voiceController.prepareModel() }
+    }
+
     fun startConversation() {
         if (greeted || state.value.messages.isNotEmpty()) return
         greeted = true
@@ -474,11 +550,12 @@ class VoiceViewModel @Inject constructor(
 
     fun toggleRecording() {
         when (state.value.phase) {
-            VoiceAssistantPhase.Listening,
-            is VoiceAssistantPhase.PartialResult -> stopListeningAndUsePartial()
+            is VoiceAssistantPhase.Recording -> stopRecording()
+            VoiceAssistantPhase.PreparingModel,
+            VoiceAssistantPhase.Transcribing,
             VoiceAssistantPhase.Processing,
             VoiceAssistantPhase.Speaking -> Unit
-            else -> startListening()
+            else -> startRecording()
         }
     }
 
@@ -493,117 +570,15 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun cancelListening() {
-        voiceController.cancelListening()
-        _state.update {
-            it.copy(
-                phase = VoiceAssistantPhase.Idle,
-                listening = false,
-                recording = false,
-                partialTranscript = "",
-                response = "",
-                permissionPermanentlyDenied = false,
-                error = null
-            )
-        }
+        viewModelScope.launch { voiceController.cancelListening() }
     }
 
-    private fun startListening() {
-        if (!voiceController.isSpeechRecognitionAvailable()) {
-            showError(
-                "El reconocimiento de voz no esta disponible. Puedes escribir o registrar manualmente.",
-                VoiceErrorType.ServiceUnavailable
-            )
-            return
-        }
-        val result = voiceController.startListening(
-            onPartial = { partial ->
-                _state.update {
-                    it.copy(
-                        phase = VoiceAssistantPhase.PartialResult(partial),
-                        partialTranscript = partial,
-                        transcript = partial,
-                        listening = true,
-                        recording = true,
-                        permissionPermanentlyDenied = false,
-                        error = null
-                    )
-                }
-            },
-            onFinal = { finalText ->
-                _state.update {
-                    it.copy(
-                        phase = VoiceAssistantPhase.Idle,
-                        transcript = finalText,
-                        partialTranscript = "",
-                        listening = false,
-                        recording = false,
-                        response = "Revisa la transcripción antes de enviarla.",
-                        permissionPermanentlyDenied = false,
-                        error = null
-                    )
-                }
-            },
-            onError = { recognitionError ->
-                _state.update {
-                    it.copy(
-                        phase = VoiceAssistantPhase.Error(recognitionError.type, recognitionError.message),
-                        listening = false,
-                        recording = false,
-                        partialTranscript = "",
-                        response = "",
-                        permissionPermanentlyDenied = false,
-                        error = recognitionError.message
-                    )
-                }
-            }
-        )
-        result.fold(
-            onSuccess = {
-                _state.update {
-                    it.copy(
-                        phase = VoiceAssistantPhase.Listening,
-                        listening = true,
-                        recording = true,
-                        transcribing = false,
-                        partialTranscript = "",
-                        response = "Escuchando...",
-                        permissionPermanentlyDenied = false,
-                        error = null
-                    )
-                }
-            },
-            onFailure = { error ->
-                val message = error.message ?: "No pude iniciar el microfono."
-                _state.update {
-                    it.copy(
-                        phase = VoiceAssistantPhase.Error(VoiceErrorType.ServiceUnavailable, message),
-                        listening = false,
-                        recording = false,
-                        transcribing = false,
-                        permissionPermanentlyDenied = false,
-                        error = message
-                    )
-                }
-            }
-        )
+    private fun startRecording() {
+        viewModelScope.launch { voiceController.startRecording() }
     }
 
-    private fun stopListeningAndUsePartial() {
-        val partial = state.value.partialTranscript.ifBlank { state.value.transcript }.trim()
-        voiceController.cancelListening()
-        _state.update { it.copy(listening = false, recording = false, partialTranscript = "") }
-        if (partial.isBlank()) {
-            showError("No escuché una frase completa. Intenta nuevamente o escríbela.")
-        } else {
-            _state.update {
-                it.copy(
-                    phase = VoiceAssistantPhase.Idle,
-                    transcript = partial,
-                    response = "Revisa la transcripción antes de enviarla.",
-                    error = null
-                )
-            }
-        }
+    fun stopRecording() {
+        viewModelScope.launch { voiceController.stopRecordingAndTranscribe() }
     }
 
     fun sendText(text: String) {
@@ -983,7 +958,7 @@ class VoiceViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        voiceController.shutdown()
+        voiceController.stopSpeaking()
         super.onCleared()
     }
 }
@@ -1098,6 +1073,24 @@ private fun String.toHabitStatusFromInterpretation(): HabitStatus =
         "completed" -> HabitStatus.Completed
         "planned", "created", "unknown" -> HabitStatus.Pending
         else -> HabitStatus.Pending
+    }
+
+private fun WhisperErrorType.toVoiceErrorType(): VoiceErrorType =
+    when (this) {
+        WhisperErrorType.PermissionDenied,
+        WhisperErrorType.PermissionPermanentlyDenied -> VoiceErrorType.InsufficientPermissions
+        WhisperErrorType.MicrophoneBusy -> VoiceErrorType.RecognizerBusy
+        WhisperErrorType.EmptyRecording,
+        WhisperErrorType.EmptyText,
+        WhisperErrorType.RecordingTooShort -> VoiceErrorType.NoMatch
+        WhisperErrorType.InferenceCancelled,
+        WhisperErrorType.RecordingInterrupted -> VoiceErrorType.Client
+        WhisperErrorType.MicrophoneUnavailable,
+        WhisperErrorType.ModelNotFound,
+        WhisperErrorType.ModelCorrupt,
+        WhisperErrorType.ModelIncompatible,
+        WhisperErrorType.NativeLibraryUnavailable -> VoiceErrorType.ServiceUnavailable
+        else -> VoiceErrorType.Unknown
     }
 
 private fun validateInterpretedHabits(items: List<InterpretedHabitUi>): String? {

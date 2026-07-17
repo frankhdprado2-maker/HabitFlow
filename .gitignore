@@ -38,3 +38,11 @@ id_ed25519.*
 backend/.venv/
 backend/**/__pycache__/
 backend/*.pyc
+/app/build/generated/whisperAssets/
+ggml-*.bin
+*.gguf
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg

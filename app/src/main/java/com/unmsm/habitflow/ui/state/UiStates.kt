@@ -178,9 +178,12 @@ data class InterpretedHabitUi(
 
 sealed interface VoiceAssistantPhase {
     data object Idle : VoiceAssistantPhase
+    data object ModelNotPrepared : VoiceAssistantPhase
+    data object PreparingModel : VoiceAssistantPhase
+    data object Ready : VoiceAssistantPhase
     data object RequestingPermission : VoiceAssistantPhase
-    data object Listening : VoiceAssistantPhase
-    data class PartialResult(val text: String) : VoiceAssistantPhase
+    data class Recording(val durationMillis: Long, val audioLevel: Float) : VoiceAssistantPhase
+    data object Transcribing : VoiceAssistantPhase
     data object Processing : VoiceAssistantPhase
     data object AwaitingConfirmation : VoiceAssistantPhase
     data object Speaking : VoiceAssistantPhase
@@ -193,6 +196,8 @@ data class VoiceUiState(
     val listening: Boolean = false,
     val recording: Boolean = false,
     val transcribing: Boolean = false,
+    val recordingDurationMillis: Long = 0,
+    val audioLevel: Float = 0f,
     val transcript: String = "",
     val partialTranscript: String = "",
     val response: String = "",
