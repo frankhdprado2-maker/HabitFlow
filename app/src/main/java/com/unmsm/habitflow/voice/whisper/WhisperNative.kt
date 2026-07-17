@@ -14,7 +14,7 @@ internal object WhisperNative {
     }
 
     external fun initializeModel(modelPath: String): Int
-    external fun transcribe(samples: FloatArray, language: String, threadCount: Int): String
-    external fun cancelTranscription()
+    external fun transcribe(samples: FloatArray, language: String, threadCount: Int, operationId: Long): String
+    external fun cancelTranscription(operationId: Long)
     external fun releaseModel()
 }

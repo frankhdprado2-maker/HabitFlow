@@ -1,6 +1,7 @@
 package com.unmsm.habitflow.voice.whisper
 
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +42,8 @@ class WhisperTranscriber private constructor(
     val state: StateFlow<WhisperState> = _state.asStateFlow()
     private var metricsJob: Job? = null
     private val automaticStopStarted = AtomicBoolean(false)
+    private val operationIds = AtomicLong(0)
+    @Volatile private var activeOperationId: Long? = null
 
     suspend fun prepareModel(): Result<Unit> = runCatching {
         if (_state.value == WhisperState.Ready || _state.value is WhisperState.Result) return@runCatching
@@ -58,55 +61,87 @@ class WhisperTranscriber private constructor(
 
     suspend fun startRecording(): Result<Unit> = operationMutex.withLock {
         runCatching {
-            if (_state.value == WhisperState.PreparingModel || _state.value == WhisperState.Processing) {
+            if (_state.value == WhisperState.PreparingModel || _state.value is WhisperState.Processing) {
                 throw WhisperError(WhisperErrorType.NativeFailure, "Whisper todavía está procesando.")
             }
             if (_state.value == WhisperState.ModelNotPrepared || _state.value is WhisperState.Error) {
                 prepareModel().getOrThrow()
             }
+            val operationId = operationIds.incrementAndGet()
+            activeOperationId = operationId
             recorder.start()
             automaticStopStarted.set(false)
-            _state.value = WhisperState.Recording(0, 0f)
+            _state.value = WhisperState.Recording(operationId, 0, 0f)
             metricsJob?.cancel()
             metricsJob = scope.launch {
                 recorder.metrics.collectLatest { metrics ->
-                    _state.value = WhisperState.Recording(metrics.durationMillis, metrics.audioLevel)
+                    if (activeOperationId != operationId) return@collectLatest
+                    _state.value = WhisperState.Recording(operationId, metrics.durationMillis, metrics.audioLevel)
                     if (metrics.reachedLimit && automaticStopStarted.compareAndSet(false, true)) {
                         launch { stopAndTranscribe() }
                     }
                 }
             }
-        }.onFailure { _state.value = WhisperState.Error(it.toWhisperError()) }
+        }.onFailure {
+            val operationId = activeOperationId
+            activeOperationId = null
+            _state.value = WhisperState.Error(it.toWhisperError(), operationId)
+        }
     }
 
     suspend fun stopAndTranscribe(): Result<String> = operationMutex.withLock {
         runCatching {
             val current = _state.value
-            if (current !is WhisperState.Recording) {
+            if (current !is WhisperState.Recording || activeOperationId != current.operationId) {
                 throw WhisperError(WhisperErrorType.RecordingInterrupted, "La grabación fue interrumpida.")
             }
+            val operationId = current.operationId
             metricsJob?.cancel()
             metricsJob = null
+            _state.value = WhisperState.Processing(operationId)
             val samples = recorder.stop()
             WhisperPcm.validate(samples)
-            _state.value = WhisperState.Processing
-            val text = engine.transcribe(samples, "es")
-            _state.value = WhisperState.Result(text)
+            ensureActive(operationId)
+            val text = engine.transcribe(samples, "es", operationId)
+            ensureActive(operationId)
+            if (_state.value != WhisperState.Processing(operationId)) throw cancelledOperation()
+            _state.value = WhisperState.Result(operationId, text)
+            activeOperationId = null
             text
         }.onFailure { error ->
             val typed = error.toWhisperError()
-            _state.value = if (typed.type == WhisperErrorType.InferenceCancelled) {
-                WhisperState.Cancelled
-            } else {
-                WhisperState.Error(typed)
+            val operationId = when (val current = _state.value) {
+                is WhisperState.Recording -> current.operationId
+                is WhisperState.Processing -> current.operationId
+                else -> activeOperationId
+            }
+            if (operationId != null && activeOperationId == operationId) {
+                activeOperationId = null
+                _state.value = if (typed.type == WhisperErrorType.InferenceCancelled) {
+                    WhisperState.Cancelled(operationId)
+                } else {
+                    WhisperState.Error(typed, operationId)
+                }
             }
         }
     }
 
     suspend fun cancel() {
+        val operationId = activeOperationId ?: return
+        activeOperationId = null
         metricsJob?.cancel()
         metricsJob = null
-        if (_state.value == WhisperState.Processing) engine.cancel() else recorder.cancel()
-        _state.value = WhisperState.Cancelled
+        engine.cancel(operationId)
+        recorder.cancel()
+        _state.value = WhisperState.Cancelled(operationId)
     }
+
+    private fun ensureActive(operationId: Long) {
+        if (activeOperationId != operationId) throw cancelledOperation()
+    }
+
+    private fun cancelledOperation() = WhisperError(
+        WhisperErrorType.InferenceCancelled,
+        "La transcripción fue cancelada."
+    )
 }

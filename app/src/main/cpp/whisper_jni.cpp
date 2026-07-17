@@ -10,14 +10,28 @@ namespace {
 std::mutex g_mutex;
 whisper_context * g_context = nullptr;
 std::string g_model_path;
-std::atomic_bool g_cancelled{false};
+std::atomic<jlong> g_active_operation{0};
+std::atomic<jlong> g_cancelled_operation{0};
+
+struct abort_context {
+    jlong operation_id;
+};
 
 void throw_state(JNIEnv * env, const char * message) {
     jclass clazz = env->FindClass("java/lang/IllegalStateException");
     if (clazz != nullptr) env->ThrowNew(clazz, message);
 }
 
-bool should_abort(void *) { return g_cancelled.load(std::memory_order_relaxed); }
+bool is_cancelled(jlong operation_id) {
+    return operation_id <= 0 ||
+        g_cancelled_operation.load(std::memory_order_acquire) == operation_id ||
+        g_active_operation.load(std::memory_order_acquire) != operation_id;
+}
+
+bool should_abort(void * data) {
+    const auto * context = static_cast<const abort_context *>(data);
+    return context == nullptr || is_cancelled(context->operation_id);
+}
 }
 
 extern "C" JNIEXPORT jint JNICALL
@@ -49,14 +63,18 @@ Java_com_unmsm_habitflow_voice_whisper_WhisperNative_initializeModel(
         return -2;
     }
     g_model_path = requested;
-    g_cancelled.store(false, std::memory_order_relaxed);
+    g_active_operation.store(0, std::memory_order_release);
     return 0;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_unmsm_habitflow_voice_whisper_WhisperNative_transcribe(
-    JNIEnv * env, jobject, jfloatArray samples, jstring language, jint thread_count
+    JNIEnv * env, jobject, jfloatArray samples, jstring language, jint thread_count, jlong operation_id
 ) {
+    if (operation_id <= 0) {
+        throw_state(env, "INVALID_OPERATION");
+        return nullptr;
+    }
     if (samples == nullptr || env->GetArrayLength(samples) == 0) {
         throw_state(env, "EMPTY_AUDIO");
         return nullptr;
@@ -74,7 +92,13 @@ Java_com_unmsm_habitflow_voice_whisper_WhisperNative_transcribe(
         throw_state(env, "MODEL_NOT_INITIALIZED");
         return nullptr;
     }
-    g_cancelled.store(false, std::memory_order_relaxed);
+    g_active_operation.store(operation_id, std::memory_order_release);
+    if (is_cancelled(operation_id)) {
+        g_active_operation.store(0, std::memory_order_release);
+        throw_state(env, "INFERENCE_CANCELLED");
+        return nullptr;
+    }
+    abort_context operation_context{operation_id};
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.n_threads = thread_count < 1 ? 1 : thread_count;
     params.translate = false;
@@ -90,9 +114,13 @@ Java_com_unmsm_habitflow_voice_whisper_WhisperNative_transcribe(
     params.language = language_value.c_str();
     params.initial_prompt = "Frases breves sobre habitos diarios en espanol.";
     params.abort_callback = should_abort;
+    params.abort_callback_user_data = &operation_context;
 
     const int result = whisper_full(g_context, params, pcm.data(), static_cast<int>(pcm.size()));
-    if (g_cancelled.load(std::memory_order_relaxed)) {
+    const bool cancelled = is_cancelled(operation_id);
+    jlong expected_operation = operation_id;
+    g_active_operation.compare_exchange_strong(expected_operation, 0, std::memory_order_acq_rel);
+    if (cancelled) {
         throw_state(env, "INFERENCE_CANCELLED");
         return nullptr;
     }
@@ -110,17 +138,25 @@ Java_com_unmsm_habitflow_voice_whisper_WhisperNative_transcribe(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_unmsm_habitflow_voice_whisper_WhisperNative_cancelTranscription(JNIEnv *, jobject) {
-    g_cancelled.store(true, std::memory_order_relaxed);
+Java_com_unmsm_habitflow_voice_whisper_WhisperNative_cancelTranscription(
+    JNIEnv *, jobject, jlong operation_id
+) {
+    if (operation_id > 0) {
+        g_cancelled_operation.store(operation_id, std::memory_order_release);
+    }
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_unmsm_habitflow_voice_whisper_WhisperNative_releaseModel(JNIEnv *, jobject) {
-    g_cancelled.store(true, std::memory_order_relaxed);
+    const jlong active_operation = g_active_operation.load(std::memory_order_acquire);
+    if (active_operation > 0) {
+        g_cancelled_operation.store(active_operation, std::memory_order_release);
+    }
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_context != nullptr) {
         whisper_free(g_context);
         g_context = nullptr;
         g_model_path.clear();
     }
+    g_active_operation.store(0, std::memory_order_release);
 }

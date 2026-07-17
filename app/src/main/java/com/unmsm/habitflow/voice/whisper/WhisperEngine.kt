@@ -10,8 +10,8 @@ import kotlinx.coroutines.withContext
 
 internal interface WhisperInferenceEngine {
     suspend fun initialize(modelPath: String)
-    suspend fun transcribe(samples: FloatArray, language: String = "es"): String
-    fun cancel()
+    suspend fun transcribe(samples: FloatArray, language: String = "es", operationId: Long): String
+    fun cancel(operationId: Long)
     suspend fun release()
 }
 
@@ -31,21 +31,21 @@ class WhisperEngine @Inject constructor() : WhisperInferenceEngine {
         loadedPath = modelPath
     }
 
-    override suspend fun transcribe(samples: FloatArray, language: String): String = inferenceMutex.withLock {
+    override suspend fun transcribe(samples: FloatArray, language: String, operationId: Long): String = inferenceMutex.withLock {
         if (loadedPath == null) {
             throw WhisperError(WhisperErrorType.ModelNotFound, "No se encontró el modelo local de voz.")
         }
         val threads = (Runtime.getRuntime().availableProcessors() - 1).coerceIn(2, 4)
         withContext(dispatcher) {
-            runCatching { WhisperNative.transcribe(samples, language, threads) }
+            runCatching { WhisperNative.transcribe(samples, language, threads, operationId) }
                 .getOrElse { throw it.toWhisperError() }
                 .cleanWhisperText()
                 .ifBlank { throw WhisperError(WhisperErrorType.EmptyText, "No se detectó voz con claridad.") }
         }
     }
 
-    override fun cancel() {
-        runCatching { WhisperNative.cancelTranscription() }
+    override fun cancel(operationId: Long) {
+        runCatching { WhisperNative.cancelTranscription(operationId) }
     }
 
     override suspend fun release() = inferenceMutex.withLock {

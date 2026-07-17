@@ -443,6 +443,7 @@ class VoiceViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
     private var greeted = false
     private var pendingResult: VoiceCommandResult? = null
+    private var latestVoiceOperationId: Long? = null
 
     init {
         viewModelScope.launch {
@@ -463,6 +464,7 @@ class VoiceViewModel @Inject constructor(
                         )
                     }
                     is WhisperState.Recording -> _state.update {
+                        latestVoiceOperationId = whisperState.operationId
                         it.copy(
                             phase = VoiceAssistantPhase.Recording(whisperState.durationMillis, whisperState.audioLevel),
                             listening = true,
@@ -474,7 +476,7 @@ class VoiceViewModel @Inject constructor(
                             error = null
                         )
                     }
-                    WhisperState.Processing -> _state.update {
+                    is WhisperState.Processing -> if (latestVoiceOperationId == whisperState.operationId) _state.update {
                         it.copy(
                             phase = VoiceAssistantPhase.Transcribing,
                             listening = false,
@@ -484,7 +486,8 @@ class VoiceViewModel @Inject constructor(
                             error = null
                         )
                     }
-                    is WhisperState.Result -> _state.update {
+                    is WhisperState.Result -> if (latestVoiceOperationId == whisperState.operationId) _state.update {
+                        latestVoiceOperationId = null
                         it.copy(
                             phase = VoiceAssistantPhase.Ready,
                             transcript = whisperState.text,
@@ -496,11 +499,17 @@ class VoiceViewModel @Inject constructor(
                             error = null
                         )
                     }
-                    is WhisperState.Error -> showError(
-                        whisperState.error.message,
-                        whisperState.error.type.toVoiceErrorType()
-                    )
-                    WhisperState.Cancelled -> _state.update {
+                    is WhisperState.Error -> if (
+                        whisperState.operationId == null || latestVoiceOperationId == whisperState.operationId
+                    ) {
+                        latestVoiceOperationId = null
+                        showError(
+                            whisperState.error.message,
+                            whisperState.error.type.toVoiceErrorType()
+                        )
+                    }
+                    is WhisperState.Cancelled -> if (latestVoiceOperationId == whisperState.operationId) _state.update {
+                        latestVoiceOperationId = null
                         it.copy(
                             phase = VoiceAssistantPhase.Ready,
                             listening = false,

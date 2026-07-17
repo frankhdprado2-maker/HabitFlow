@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -25,7 +26,8 @@ class WhisperTranscriberTest {
         val result = transcriber.stopAndTranscribe()
 
         assertEquals("Hoy tomé dos litros de agua", result.getOrThrow())
-        assertEquals(WhisperState.Result("Hoy tomé dos litros de agua"), transcriber.state.value)
+        val completed = transcriber.state.value as WhisperState.Result
+        assertEquals("Hoy tomé dos litros de agua", completed.text)
         assertEquals("es", engine.language)
         assertTrue(recorder.stopped)
     }
@@ -64,7 +66,7 @@ class WhisperTranscriberTest {
         transcriber.cancel()
         assertTrue(recorder.cancelled)
         assertFalse(engine.transcribed)
-        assertEquals(WhisperState.Cancelled, transcriber.state.value)
+        assertTrue(transcriber.state.value is WhisperState.Cancelled)
     }
 
     @Test fun emptyTranscriptionIsRejected() = runBlocking {
@@ -94,7 +96,7 @@ class WhisperTranscriberTest {
             if (transcriber.state.value is WhisperState.Result) return@repeat
             delay(10)
         }
-        assertEquals(WhisperState.Result("texto automático"), transcriber.state.value)
+        assertEquals("texto automático", (transcriber.state.value as WhisperState.Result).text)
         assertTrue(recorder.stopped)
     }
 
@@ -106,13 +108,75 @@ class WhisperTranscriberTest {
         transcriber.startRecording()
         val inference = async { transcriber.stopAndTranscribe() }
         repeat(50) {
-            if (transcriber.state.value == WhisperState.Processing) return@repeat
+            if (transcriber.state.value is WhisperState.Processing) return@repeat
             delay(10)
         }
         transcriber.cancel()
         assertTrue(inference.await().isFailure)
         assertTrue(engine.cancelled)
-        assertEquals(WhisperState.Cancelled, transcriber.state.value)
+        assertTrue(transcriber.state.value is WhisperState.Cancelled)
+    }
+
+    @Test fun cancellationBeforeNativeInferenceIsKeptForThatOperation() = runBlocking {
+        val recorder = GateRecorder()
+        val engine = OperationAwareEngine()
+        val transcriber = WhisperTranscriber(FakeModelProvider(), engine, recorder, true)
+        transcriber.prepareModel()
+        transcriber.startRecording()
+        val operationId = (transcriber.state.value as WhisperState.Recording).operationId
+
+        val inference = async { transcriber.stopAndTranscribe() }
+        recorder.stopEntered.await()
+        transcriber.cancel()
+
+        assertTrue(inference.await().isFailure)
+        assertTrue(operationId in engine.cancelledOperations)
+        assertTrue(transcriber.state.value is WhisperState.Cancelled)
+    }
+
+    @Test fun lateResultAfterCancellationNeverReplacesCancelledState() = runBlocking {
+        val engine = LateResultEngine()
+        val transcriber = WhisperTranscriber(FakeModelProvider(), engine, FakeRecorder(), true)
+        transcriber.prepareModel()
+        transcriber.startRecording()
+        val inference = async { transcriber.stopAndTranscribe() }
+        engine.started.await()
+
+        transcriber.cancel()
+        engine.result.complete("resultado tardío")
+
+        assertTrue(inference.await().isFailure)
+        assertTrue(transcriber.state.value is WhisperState.Cancelled)
+    }
+
+    @Test fun newOperationAfterCancellationUsesANewIdentifier() = runBlocking {
+        val engine = FakeEngine("segunda operación")
+        val transcriber = transcriber(FakeRecorder(), engine)
+        transcriber.prepareModel()
+        transcriber.startRecording()
+        val cancelledId = (transcriber.state.value as WhisperState.Recording).operationId
+        transcriber.cancel()
+
+        transcriber.startRecording()
+        val nextId = (transcriber.state.value as WhisperState.Recording).operationId
+        val result = transcriber.stopAndTranscribe()
+
+        assertNotEquals(cancelledId, nextId)
+        assertEquals("segunda operación", result.getOrThrow())
+        assertEquals(nextId, (transcriber.state.value as WhisperState.Result).operationId)
+    }
+
+    @Test fun consecutiveRequestsKeepDistinctOperationIdentifiers() = runBlocking {
+        val transcriber = transcriber(FakeRecorder(), FakeEngine("texto"))
+        transcriber.prepareModel()
+        transcriber.startRecording()
+        val firstId = (transcriber.state.value as WhisperState.Recording).operationId
+        assertTrue(transcriber.stopAndTranscribe().isSuccess)
+        transcriber.startRecording()
+        val secondId = (transcriber.state.value as WhisperState.Recording).operationId
+        assertTrue(transcriber.stopAndTranscribe().isSuccess)
+
+        assertTrue(secondId > firstId)
     }
 
     private fun transcriber(recorder: FakeRecorder, engine: FakeEngine) =
@@ -130,14 +194,14 @@ private class FakeEngine(private val output: String) : WhisperInferenceEngine {
     var language: String? = null
     var transcribed = false
     override suspend fun initialize(modelPath: String) = Unit
-    override suspend fun transcribe(samples: FloatArray, language: String): String {
+    override suspend fun transcribe(samples: FloatArray, language: String, operationId: Long): String {
         transcribed = true
         this.language = language
         return output.cleanWhisperText().ifBlank {
             throw WhisperError(WhisperErrorType.EmptyText, "No se detectó voz con claridad.")
         }
     }
-    override fun cancel() = Unit
+    override fun cancel(operationId: Long) = Unit
     override suspend fun release() = Unit
 }
 
@@ -145,14 +209,53 @@ private class BlockingEngine : WhisperInferenceEngine {
     private val result = CompletableDeferred<String>()
     var cancelled = false
     override suspend fun initialize(modelPath: String) = Unit
-    override suspend fun transcribe(samples: FloatArray, language: String): String = result.await()
-    override fun cancel() {
+    override suspend fun transcribe(samples: FloatArray, language: String, operationId: Long): String = result.await()
+    override fun cancel(operationId: Long) {
         cancelled = true
         result.completeExceptionally(
             WhisperError(WhisperErrorType.InferenceCancelled, "La transcripción fue cancelada.")
         )
     }
     override suspend fun release() = Unit
+}
+
+private class OperationAwareEngine : WhisperInferenceEngine {
+    val cancelledOperations = mutableSetOf<Long>()
+    override suspend fun initialize(modelPath: String) = Unit
+    override suspend fun transcribe(samples: FloatArray, language: String, operationId: Long): String {
+        if (operationId in cancelledOperations) {
+            throw WhisperError(WhisperErrorType.InferenceCancelled, "La transcripción fue cancelada.")
+        }
+        return "texto"
+    }
+    override fun cancel(operationId: Long) { cancelledOperations += operationId }
+    override suspend fun release() = Unit
+}
+
+private class LateResultEngine : WhisperInferenceEngine {
+    val started = CompletableDeferred<Unit>()
+    val result = CompletableDeferred<String>()
+    override suspend fun initialize(modelPath: String) = Unit
+    override suspend fun transcribe(samples: FloatArray, language: String, operationId: Long): String {
+        started.complete(Unit)
+        return result.await()
+    }
+    override fun cancel(operationId: Long) = Unit
+    override suspend fun release() = Unit
+}
+
+private class GateRecorder : WhisperRecorder {
+    private val mutableMetrics = MutableStateFlow(RecordingMetrics())
+    override val metrics: StateFlow<RecordingMetrics> = mutableMetrics
+    val stopEntered = CompletableDeferred<Unit>()
+    private val stopReleased = CompletableDeferred<Unit>()
+    override suspend fun start() { mutableMetrics.value = RecordingMetrics(500, 0.4f) }
+    override suspend fun stop(): FloatArray {
+        stopEntered.complete(Unit)
+        stopReleased.await()
+        return FloatArray(WhisperPcm.MIN_SAMPLES) { 0.2f }
+    }
+    override suspend fun cancel() { stopReleased.complete(Unit) }
 }
 
 private class FakeRecorder : WhisperRecorder {

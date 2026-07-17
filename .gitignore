@@ -46,3 +46,4 @@ ggml-*.bin
 *.m4a
 *.flac
 *.ogg
+/.codex_tmp/

@@ -17,6 +17,7 @@ class WhisperNativeSmokeTest {
         val engine = WhisperEngine()
         engine.initialize(model.absolutePath)
         engine.release()
+        engine.release()
         assertTrue(model.isFile && model.length() > 0)
     }
 }

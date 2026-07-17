@@ -4,11 +4,11 @@ sealed interface WhisperState {
     data object ModelNotPrepared : WhisperState
     data object PreparingModel : WhisperState
     data object Ready : WhisperState
-    data class Recording(val durationMillis: Long, val audioLevel: Float) : WhisperState
-    data object Processing : WhisperState
-    data class Result(val text: String) : WhisperState
-    data class Error(val error: WhisperError) : WhisperState
-    data object Cancelled : WhisperState
+    data class Recording(val operationId: Long, val durationMillis: Long, val audioLevel: Float) : WhisperState
+    data class Processing(val operationId: Long) : WhisperState
+    data class Result(val operationId: Long, val text: String) : WhisperState
+    data class Error(val error: WhisperError, val operationId: Long? = null) : WhisperState
+    data class Cancelled(val operationId: Long) : WhisperState
 }
 
 data class RecordingMetrics(

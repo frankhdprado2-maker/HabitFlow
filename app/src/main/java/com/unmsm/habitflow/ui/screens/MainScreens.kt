@@ -769,7 +769,9 @@ fun VoiceScreen(
     LaunchedEffect(Unit) { viewModel.startConversation() }
     LaunchedEffect(state.transcript) {
         if (state.transcript.isNotBlank() && state.transcript != lastTranscript) {
-            typedText = state.transcript
+            if (typedText.isBlank() || typedText == lastTranscript) {
+                typedText = state.transcript
+            }
             lastTranscript = state.transcript
         }
     }
