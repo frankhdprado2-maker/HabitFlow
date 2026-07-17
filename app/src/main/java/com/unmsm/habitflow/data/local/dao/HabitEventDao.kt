@@ -15,6 +15,15 @@ interface HabitEventDao {
     @Query("SELECT * FROM habit_events WHERE habitId = :habitId ORDER BY timestamp DESC")
     fun observeForHabit(habitId: String): Flow<List<HabitEventEntity>>
 
+    @Query("SELECT * FROM habit_events WHERE habitId = :habitId ORDER BY timestamp DESC")
+    suspend fun forHabitOnce(habitId: String): List<HabitEventEntity>
+
+    @Query("SELECT * FROM habit_events WHERE habitId = :habitId ORDER BY timestamp DESC LIMIT 1")
+    suspend fun latestForHabit(habitId: String): HabitEventEntity?
+
+    @Query("SELECT * FROM habit_events WHERE habitId = :habitId AND status = 'Completed' AND timestamp >= :start AND timestamp < :end ORDER BY timestamp LIMIT 1")
+    suspend fun completedForLocalDay(habitId: String, start: Long, end: Long): HabitEventEntity?
+
     @Query("SELECT * FROM habit_events WHERE synced = 0 ORDER BY timestamp")
     suspend fun unsynced(): List<HabitEventEntity>
 
@@ -38,6 +47,9 @@ interface HabitEventDao {
 
     @Query("UPDATE habit_events SET synced = 1 WHERE id = :id")
     suspend fun markSynced(id: String)
+
+    @Query("UPDATE habit_events SET note = :note, synced = 0 WHERE id = :id")
+    suspend fun updateNote(id: String, note: String)
 
     @Query("DELETE FROM habit_events WHERE id = :id")
     suspend fun deleteById(id: String)

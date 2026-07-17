@@ -15,6 +15,9 @@ interface UserProfileDao {
     @Query("SELECT * FROM user_profile LIMIT 1")
     fun observeCurrent(): Flow<UserProfileEntity?>
 
+    @Query("SELECT * FROM user_profile LIMIT 1")
+    suspend fun currentOnce(): UserProfileEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(profile: UserProfileEntity)
 }

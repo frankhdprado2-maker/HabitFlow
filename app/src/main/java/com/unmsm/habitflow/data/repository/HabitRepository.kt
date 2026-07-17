@@ -6,6 +6,7 @@ import com.unmsm.habitflow.data.local.dao.HabitDao
 import com.unmsm.habitflow.data.local.dao.HabitEventDao
 import com.unmsm.habitflow.data.local.dao.NotificationDao
 import com.unmsm.habitflow.data.local.dao.PlanRecommendationDao
+import com.unmsm.habitflow.data.local.dao.UserProfileDao
 import com.unmsm.habitflow.data.remote.api.HabitEventApi
 import com.unmsm.habitflow.data.remote.dto.GeoEventRequest
 import com.unmsm.habitflow.data.toDomain
@@ -21,8 +22,8 @@ import com.unmsm.habitflow.domain.model.PlanRecommendation
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.domain.model.VoicePlanResult
+import com.unmsm.habitflow.domain.habit.HabitStreakCalculator
 import com.unmsm.habitflow.util.AppResult
-import kotlin.math.max
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -30,6 +31,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Singleton
 class HabitRepository @Inject constructor(
@@ -39,8 +42,11 @@ class HabitRepository @Inject constructor(
     private val notificationDao: NotificationDao,
     private val planRecommendationDao: PlanRecommendationDao,
     private val cosmeticRewardDao: CosmeticRewardDao,
+    private val userProfileDao: UserProfileDao,
     private val eventApi: HabitEventApi
 ) {
+    private val eventMutationMutex = Mutex()
+
     fun observeHabits(): Flow<List<Habit>> =
         habitDao.observeActive().map { habits -> habits.map { it.toDomain() } }
 
@@ -190,7 +196,7 @@ class HabitRepository @Inject constructor(
                     category = "Voz"
                 ).also { habitDao.upsert(it.toEntity()) }
 
-            lastResult = markHabit(habit, event.status, voiceNote(event), event.eventTimestamp())
+            lastResult = markHabit(habit, event.status, voiceNote(event), event.eventTimestamp(userZoneId()))
         }
         return lastResult
     }
@@ -210,7 +216,19 @@ class HabitRepository @Inject constructor(
         status: HabitStatus,
         note: String = "",
         timestamp: Long = System.currentTimeMillis()
-    ): AppResult<HabitEvent> {
+    ): AppResult<HabitEvent> = eventMutationMutex.withLock {
+        val zoneId = userZoneId()
+        if (status == HabitStatus.Completed) {
+            val localDate = java.time.Instant.ofEpochMilli(timestamp).atZone(zoneId).toLocalDate()
+            val dayStart = localDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val dayEnd = localDate.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val existing = eventDao.completedForLocalDay(habit.id, dayStart, dayEnd)?.toDomain()
+            if (existing != null) {
+                if (note.isNotBlank() && note != existing.note) eventDao.updateNote(existing.id, note)
+                recalculateStreak(habit.id, zoneId)
+                return@withLock AppResult.Success(existing.copy(note = note.ifBlank { existing.note }))
+            }
+        }
         val event = HabitEvent(
             id = UUID.randomUUID().toString(),
             habitId = habit.id,
@@ -221,31 +239,42 @@ class HabitRepository @Inject constructor(
             synced = false
         )
         eventDao.upsert(event.toEntity())
-        if (status == HabitStatus.Completed) {
-            val nextStreak = habit.streak + 1
-            habitDao.upsert(habit.copy(streak = nextStreak, bestStreak = max(habit.bestStreak, nextStreak)).toEntity())
-        }
+        recalculateStreak(habit.id, zoneId)
         val syncResult = syncEvent(event)
-        return when (syncResult) {
+        when (syncResult) {
             is AppResult.Success -> syncResult
             is AppResult.Error -> AppResult.Success(event)
         }
     }
 
-    suspend fun undoEvent(eventId: String): AppResult<Unit> {
-        val event = eventDao.findById(eventId)?.toDomain() ?: return AppResult.Error("No encontré la acción para deshacer.")
+    suspend fun undoEvent(eventId: String): AppResult<Unit> = eventMutationMutex.withLock {
+        val event = eventDao.findById(eventId)?.toDomain()
+            ?: return@withLock AppResult.Error("No encontré la acción para deshacer.")
         eventDao.deleteById(eventId)
-        if (event.status == HabitStatus.Completed) {
-            val habit = habitDao.findById(event.habitId)?.toDomain()
-            if (habit != null) {
-                habitDao.upsert(habit.copy(streak = (habit.streak - 1).coerceAtLeast(0)).toEntity())
-            }
-        }
-        return AppResult.Success(Unit)
+        recalculateStreak(event.habitId, userZoneId())
+        AppResult.Success(Unit)
     }
 
-    suspend fun addNote(habit: Habit, note: String): AppResult<HabitEvent> =
-        markHabit(habit, HabitStatus.Completed, note)
+    suspend fun addNote(habit: Habit, note: String): AppResult<HabitEvent> {
+        val existing = eventDao.latestForHabit(habit.id)?.toDomain()
+        if (existing != null) {
+            eventDao.updateNote(existing.id, note)
+            return AppResult.Success(existing.copy(note = note, synced = false))
+        }
+        return markHabit(habit, HabitStatus.Pending, note)
+    }
+
+    private suspend fun recalculateStreak(habitId: String, zoneId: ZoneId) {
+        val habit = habitDao.findById(habitId)?.toDomain() ?: return
+        val events = eventDao.forHabitOnce(habitId).map { it.toDomain() }
+        val metrics = HabitStreakCalculator.calculate(habit, events, LocalDate.now(zoneId), zoneId)
+        habitDao.upsert(habit.copy(streak = metrics.currentStreak, bestStreak = metrics.bestStreak).toEntity())
+    }
+
+    private suspend fun userZoneId(): ZoneId {
+        val configured = userProfileDao.currentOnce()?.timezone.orEmpty()
+        return runCatching { ZoneId.of(configured) }.getOrDefault(ZoneId.of(DEFAULT_TIMEZONE))
+    }
 
     suspend fun syncEvent(event: HabitEvent): AppResult<HabitEvent> =
         runNetwork {
@@ -277,6 +306,8 @@ class HabitRepository @Inject constructor(
         runNetwork {
             val remoteEvents = eventApi.list().map { it.toEntity() }
             eventDao.upsertAll(remoteEvents)
+            val zoneId = userZoneId()
+            remoteEvents.map { it.habitId }.distinct().forEach { recalculateStreak(it, zoneId) }
         }
 }
 
@@ -331,11 +362,12 @@ private data class DemoHabitHistory(
 )
 
 private const val DAY_MS = 86_400_000L
+private const val DEFAULT_TIMEZONE = "America/Lima"
 
-private fun VoiceEventResult.eventTimestamp(): Long =
+private fun VoiceEventResult.eventTimestamp(zoneId: ZoneId): Long =
     date
         ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-        ?.atStartOfDay(ZoneId.of("America/Lima"))
+        ?.atStartOfDay(zoneId)
         ?.toInstant()
         ?.toEpochMilli()
         ?: System.currentTimeMillis()
