@@ -3,7 +3,7 @@ import time
 from collections import Counter
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.projects.c21200065.api.deps import get_current_user
@@ -12,6 +12,7 @@ from app.projects.c21200065.domain.habit_interpretation_service import (
     HabitInterpretationError,
     HabitInterpretationRequest,
     HabitInterpretationResponse,
+    RuleBasedHabitInterpreter,
 )
 from app.projects.c21200065.domain.voice_conversation_service import (
     AchievementContext,
@@ -22,13 +23,13 @@ from app.projects.c21200065.domain.voice_conversation_service import (
     handle_voice_turn,
 )
 from app.projects.c21200065.infra.db.redis import redis_client
-from app.projects.c21200065.infra.settings import settings
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 CurrentUserDep = Annotated[dict, Depends(get_current_user)]
 
 _memory_sessions: dict[str, str] = {}
 habit_interpreter = GeminiHabitInterpreter()
+fallback_habit_interpreter = RuleBasedHabitInterpreter()
 
 
 class VoiceHabitContext(BaseModel):
@@ -209,15 +210,8 @@ async def interpret_habit(
     del current_user
     try:
         return await habit_interpreter.interpret(request.text, request.timezone)
-    except HabitInterpretationError as error:
-        status_code = {
-            "missing_api_key": 503,
-            "quota": 429,
-            "timeout": 504,
-            "invalid_response": 502,
-            "provider_error": 502,
-        }.get(error.kind, 502)
-        raise HTTPException(status_code=status_code, detail=error.message) from error
+    except HabitInterpretationError:
+        return await fallback_habit_interpreter.interpret(request.text, request.timezone)
 
 
 @router.post("/voice-command", response_model=VoiceCommandResponse)

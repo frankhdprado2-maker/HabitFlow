@@ -90,7 +90,9 @@ object AppModule {
             .addMigrations(
                 HabitFlowDatabase.MIGRATION_2_3,
                 HabitFlowDatabase.MIGRATION_3_4,
-                HabitFlowDatabase.MIGRATION_4_5
+                HabitFlowDatabase.MIGRATION_4_5,
+                HabitFlowDatabase.MIGRATION_5_6,
+                HabitFlowDatabase.MIGRATION_6_7
             )
             .build()
 
@@ -99,6 +101,9 @@ object AppModule {
 
     @Provides
     fun provideHabitEventDao(database: HabitFlowDatabase) = database.habitEventDao()
+
+    @Provides
+    fun provideHabitScheduleDao(database: HabitFlowDatabase) = database.habitScheduleDao()
 
     @Provides
     fun provideAchievementDao(database: HabitFlowDatabase) = database.achievementDao()

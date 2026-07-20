@@ -1,5 +1,9 @@
 package com.unmsm.habitflow.domain.model
 
+import com.unmsm.habitflow.domain.habit.HabitFrequency
+import com.unmsm.habitflow.domain.habit.AggregationMode
+import com.unmsm.habitflow.domain.habit.HabitMeasurement
+
 data class User(
     val id: String,
     val name: String,
@@ -32,7 +36,9 @@ data class Habit(
     val category: String,
     val isActive: Boolean = true,
     val streak: Int = 0,
-    val bestStreak: Int = 0
+    val bestStreak: Int = 0,
+    val schedule: HabitFrequency = HabitFrequency.fromLegacy(frequency),
+    val measurement: HabitMeasurement = HabitMeasurement()
 )
 
 enum class HabitStatus {
@@ -49,7 +55,13 @@ data class HabitEvent(
     val status: HabitStatus,
     val timestamp: Long,
     val note: String = "",
-    val synced: Boolean = false
+    val synced: Boolean = false,
+    val value: Double? = null,
+    val normalizedValue: Double? = null,
+    val unit: String? = null,
+    val aggregationMode: AggregationMode? = null,
+    val idempotencyKey: String? = null,
+    val source: String = "MANUAL"
 )
 
 data class Achievement(
@@ -118,7 +130,9 @@ data class VoiceEventResult(
     val status: HabitStatus,
     val quantity: Double? = null,
     val unit: String? = null,
-    val date: String? = null
+    val date: String? = null,
+    val aggregationMode: AggregationMode = AggregationMode.ADD,
+    val idempotencyKey: String? = null
 )
 
 data class VoicePlanResult(

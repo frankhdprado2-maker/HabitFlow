@@ -11,6 +11,7 @@ from app.projects.c21200065.domain.habit_interpretation_service import (
     GeminiHabitInterpreter,
     HabitInterpretationError,
     HabitInterpretationRequest,
+    RuleBasedHabitInterpreter,
 )
 
 
@@ -172,3 +173,46 @@ def test_interpret_habit_endpoint_uses_authenticated_interpreter(monkeypatch) ->
 
     assert response.status_code == 200
     assert response.json()["habits"][0]["name"] == "Tomar agua"
+
+
+@pytest.mark.asyncio
+async def test_rule_based_fallback_interprets_multiple_spanish_habits() -> None:
+    interpreter = RuleBasedHabitInterpreter(clock=lambda _: date(2026, 7, 19))
+
+    result = await interpreter.interpret(
+        "Hoy día leí dos libros, uno de programación y otro de matemática; "
+        "además de que corrí 5 kilómetros."
+    )
+
+    assert result.intent == "register_habit"
+    assert [habit.name for habit in result.habits] == ["Leer", "Correr"]
+    assert result.habits[0].quantity == 2
+    assert result.habits[0].unit == "libros"
+    assert result.habits[1].quantity == 5
+    assert result.habits[1].unit == "kilometros"
+    assert result.needs_confirmation is True
+
+
+def test_interpret_habit_endpoint_falls_back_when_provider_fails(monkeypatch) -> None:
+    class FailingInterpreter:
+        async def interpret(self, text: str, timezone: str):
+            del text, timezone
+            raise HabitInterpretationError("provider_error", "provider down")
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: {
+        "user_id": "user",
+        "email": "user@example.com",
+    }
+    app.include_router(ai.router)
+    monkeypatch.setattr(ai, "habit_interpreter", FailingInterpreter())
+    client = TestClient(app)
+
+    response = client.post(
+        "/ai/interpret-habit",
+        json={"text": "Hoy corrí 5 kilómetros", "timezone": "America/Lima"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["habits"][0]["name"] == "Correr"
+    assert response.json()["habits"][0]["quantity"] == 5

@@ -14,6 +14,14 @@ import com.unmsm.habitflow.domain.model.HabitStatus
 import com.unmsm.habitflow.domain.model.InterpretedHabit
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
+import com.unmsm.habitflow.domain.habit.HabitHeatmapBuilder
+import com.unmsm.habitflow.domain.habit.HeatmapDayState
+import com.unmsm.habitflow.domain.habit.HabitFrequency
+import com.unmsm.habitflow.domain.habit.HabitFrequencyType
+import com.unmsm.habitflow.domain.habit.AggregationMode
+import com.unmsm.habitflow.domain.habit.HabitMeasurement
+import com.unmsm.habitflow.domain.habit.MeasurementType
+import com.unmsm.habitflow.domain.habit.HabitStatisticsCalculator
 import com.unmsm.habitflow.ui.state.AchievementsUiState
 import com.unmsm.habitflow.ui.state.CoachUiState
 import com.unmsm.habitflow.ui.state.EditProfileUiState
@@ -36,9 +44,14 @@ import com.unmsm.habitflow.voice.LocalVoiceCommandParser
 import com.unmsm.habitflow.voice.isCoachRequest
 import com.unmsm.habitflow.voice.VoiceErrorType
 import com.unmsm.habitflow.voice.VoiceController
+import com.unmsm.habitflow.voice.whisper.WhisperErrorType
+import com.unmsm.habitflow.voice.whisper.WhisperState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.text.Normalizer
 import java.time.LocalDate
+import java.time.DayOfWeek
+import java.time.YearMonth
+import java.time.ZoneId
 import java.util.Calendar
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -157,22 +170,62 @@ class HabitDetailViewModel @Inject constructor(
 ) : ViewModel() {
     private val habitId = savedStateHandle.get<String>("habitId") ?: "study"
     private val _note = MutableStateFlow("")
-    val state: StateFlow<HabitDetailUiState> = combine(
+    private val _progressValue = MutableStateFlow("")
+    private val detailData = combine(
         habitRepository.observeHabit(habitId),
         habitRepository.observeEventsForHabit(habitId),
-        _note
-    ) { habit, events, note ->
-        HabitDetailUiState(habit = habit, events = events, note = note)
+        habitRepository.observeScheduleVersions(habitId)
+    ) { habit, events, schedules -> Triple(habit, events, schedules) }
+    val state: StateFlow<HabitDetailUiState> = combine(
+        detailData,
+        combine(_note, _progressValue) { note, progress -> note to progress },
+        habitRepository.observeTimezone()
+    ) { data, input, timezone ->
+        val (note, progressValue) = input
+        val (habit, events, schedules) = data
+        val zoneId = runCatching { ZoneId.of(timezone) }.getOrDefault(ZoneId.of("America/Lima"))
+        val today = LocalDate.now(zoneId)
+        val heatmap = habit?.let {
+            HabitHeatmapBuilder.build(it, events, YearMonth.from(today), today, zoneId, schedules)
+        } ?: com.unmsm.habitflow.domain.habit.HabitHeatmap()
+        val scheduled = heatmap.days.count { it.state !in setOf(HeatmapDayState.NotScheduled, HeatmapDayState.Future) }
+        val completed = heatmap.days.count { it.state == HeatmapDayState.Completed }
+        HabitDetailUiState(
+            habit = habit,
+            events = events,
+            note = note,
+            progressValue = progressValue,
+            completionPercent = if (scheduled == 0) 0 else completed * 100 / scheduled,
+            heatmap = heatmap
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HabitDetailUiState())
 
     fun updateNote(value: String) = _note.update { value }
+    fun updateProgressValue(value: String) = _progressValue.update { value }
+
+    fun recordProgress() {
+        val habit = state.value.habit ?: return
+        val value = state.value.progressValue.toDoubleOrNull() ?: return
+        viewModelScope.launch {
+            habitRepository.recordProgress(habit, value, habit.measurement.unit)
+            _progressValue.value = ""
+        }
+    }
 
     fun markToday() {
         val habit = state.value.habit ?: return
         viewModelScope.launch { habitRepository.markHabit(habit, HabitStatus.Completed, state.value.note) }
     }
 
-    fun addNote() = markToday()
+    fun addNote() {
+        val habit = state.value.habit ?: return
+        val note = state.value.note.trim()
+        if (note.isBlank()) return
+        viewModelScope.launch {
+            habitRepository.addNote(habit, note)
+            _note.value = ""
+        }
+    }
 }
 
 @HiltViewModel
@@ -184,38 +237,30 @@ class StatsViewModel @Inject constructor(
     val state: StateFlow<StatsUiState> = combine(
         habitRepository.observeHabits(),
         habitRepository.observeEvents(),
-        coach
-    ) { habits, events, coachState ->
+        coach,
+        habitRepository.observeTimezone()
+    ) { habits, events, coachState, timezone ->
+            val zoneId = runCatching { ZoneId.of(timezone) }.getOrDefault(ZoneId.of("America/Lima"))
+            val today = LocalDate.now(zoneId)
             val completedEvents = events.filter { it.status == HabitStatus.Completed }
-            val weekStart = startOfToday() - 6 * DAY_MS
-            val previousWeekStart = weekStart - 7 * DAY_MS
+            val weekStartDate = today.minusDays(6)
             val weekly = (0..6).map { index ->
-                val dayStart = weekStart + index * DAY_MS
-                val dayEnd = dayStart + DAY_MS
-                completedEvents.count { it.timestamp in dayStart until dayEnd }
+                val date = weekStartDate.plusDays(index.toLong())
+                habits.count { habit -> HabitStatisticsCalculator.calculate(habit, events, date, date, zoneId).completedDays == 1 }
             }
-            val currentWeek = completedEvents.count { it.timestamp >= weekStart }
-            val previousWeek = completedEvents.count { it.timestamp in previousWeekStart until weekStart }
-            val monthStart = startOfMonth()
-            val monthEvents = completedEvents.count { it.timestamp >= monthStart }
-            val possibleMonthSlots = (habits.size.coerceAtLeast(1) * currentDayOfMonth()).coerceAtLeast(1)
-            val recentAttempts = events
-                .filter { it.timestamp >= startOfToday() - 29 * DAY_MS }
-                .groupBy { it.habitId }
+            val currentWeek = weekly.sum()
+            val previousWeek = habits.sumOf { HabitStatisticsCalculator.calculate(it, events, weekStartDate.minusDays(7), weekStartDate.minusDays(1), zoneId).completedDays }
+            val monthStartDate = today.withDayOfMonth(1)
+            val monthStats = habits.map { HabitStatisticsCalculator.calculate(it, events, monthStartDate, today, zoneId) }
+            val scheduledMonth = monthStats.sumOf { it.scheduledDays }
+            val completedMonth = monthStats.sumOf { it.completedDays }
             val completionRates = habits.associate { habit ->
-                val attempts = recentAttempts[habit.id].orEmpty()
-                    .filter { it.status != HabitStatus.Pending }
-                val rate = if (attempts.isEmpty()) {
-                    0f
-                } else {
-                    attempts.count { it.status == HabitStatus.Completed }.toFloat() / attempts.size
-                }
-                habit.id to rate
+                habit.id to HabitStatisticsCalculator.calculate(habit, events, today.minusDays(29), today, zoneId).completionRate.toFloat()
             }
             StatsUiState(
                 currentStreak = habits.maxOfOrNull { it.streak } ?: 0,
                 bestStreak = habits.maxOfOrNull { it.bestStreak } ?: 0,
-                monthPercent = ((monthEvents.toFloat() / possibleMonthSlots) * 100).toInt().coerceIn(0, 100),
+                monthPercent = if (scheduledMonth == 0) 0 else (completedMonth * 100 / scheduledMonth),
                 weekly = weekly,
                 habits = habits,
                 totalCompleted = completedEvents.size,
@@ -371,11 +416,13 @@ class EditProfileViewModel @Inject constructor(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val habitRepository: HabitRepository
 ) : ViewModel() {
     private val loggingOut = MutableStateFlow(false)
-    val state: StateFlow<SettingsUiState> = combine(settingsRepository.settings, loggingOut) { settings, isLoggingOut ->
-        SettingsUiState(settings, isLoggingOut)
+    private val logoutError = MutableStateFlow<String?>(null)
+    val state: StateFlow<SettingsUiState> = combine(settingsRepository.settings, loggingOut, logoutError) { settings, isLoggingOut, error ->
+        SettingsUiState(settings, isLoggingOut, error)
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
@@ -389,7 +436,15 @@ class SettingsViewModel @Inject constructor(
     fun setAccentColor(value: String) = viewModelScope.launch { settingsRepository.setAccentColor(value) }
     fun logout(onComplete: () -> Unit) = viewModelScope.launch {
         loggingOut.value = true
-        authRepository.logout()
+        logoutError.value = null
+        when (val sync = habitRepository.syncBeforeLogout()) {
+            is AppResult.Success -> authRepository.logout()
+            is AppResult.Error -> {
+                logoutError.value = "No se cerró la sesión porque hay datos pendientes de sincronizar. Revisa tu conexión."
+                loggingOut.value = false
+                return@launch
+            }
+        }
         loggingOut.value = false
         onComplete()
     }
@@ -441,6 +496,89 @@ class VoiceViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
     private var greeted = false
     private var pendingResult: VoiceCommandResult? = null
+    private var latestVoiceOperationId: Long? = null
+
+    init {
+        viewModelScope.launch {
+            voiceController.state.collect { whisperState ->
+                when (whisperState) {
+                    WhisperState.ModelNotPrepared -> _state.update { it.copy(phase = VoiceAssistantPhase.ModelNotPrepared) }
+                    WhisperState.PreparingModel -> _state.update {
+                        it.copy(phase = VoiceAssistantPhase.PreparingModel, response = "Preparando el modelo local de voz…", error = null)
+                    }
+                    WhisperState.Ready -> _state.update {
+                        it.copy(
+                            phase = VoiceAssistantPhase.Ready,
+                            listening = false,
+                            recording = false,
+                            transcribing = false,
+                            response = "",
+                            error = null
+                        )
+                    }
+                    is WhisperState.Recording -> _state.update {
+                        latestVoiceOperationId = whisperState.operationId
+                        it.copy(
+                            phase = VoiceAssistantPhase.Recording(whisperState.durationMillis, whisperState.audioLevel),
+                            listening = true,
+                            recording = true,
+                            transcribing = false,
+                            recordingDurationMillis = whisperState.durationMillis,
+                            audioLevel = whisperState.audioLevel,
+                            response = "Grabando…",
+                            error = null
+                        )
+                    }
+                    is WhisperState.Processing -> if (latestVoiceOperationId == whisperState.operationId) _state.update {
+                        it.copy(
+                            phase = VoiceAssistantPhase.Transcribing,
+                            listening = false,
+                            recording = false,
+                            transcribing = true,
+                            response = "Whisper está convirtiendo tu voz en texto…",
+                            error = null
+                        )
+                    }
+                    is WhisperState.Result -> if (latestVoiceOperationId == whisperState.operationId) _state.update {
+                        latestVoiceOperationId = null
+                        it.copy(
+                            phase = VoiceAssistantPhase.Ready,
+                            transcript = whisperState.text,
+                            partialTranscript = "",
+                            listening = false,
+                            recording = false,
+                            transcribing = false,
+                            response = "Revisa la transcripción antes de enviarla.",
+                            error = null
+                        )
+                    }
+                    is WhisperState.Error -> if (
+                        whisperState.operationId == null || latestVoiceOperationId == whisperState.operationId
+                    ) {
+                        latestVoiceOperationId = null
+                        showError(
+                            whisperState.error.message,
+                            whisperState.error.type.toVoiceErrorType()
+                        )
+                    }
+                    is WhisperState.Cancelled -> if (latestVoiceOperationId == whisperState.operationId) _state.update {
+                        latestVoiceOperationId = null
+                        it.copy(
+                            phase = VoiceAssistantPhase.Ready,
+                            listening = false,
+                            recording = false,
+                            transcribing = false,
+                            recordingDurationMillis = 0,
+                            audioLevel = 0f,
+                            response = "Grabación cancelada. No se envió audio fuera de tu dispositivo.",
+                            error = null
+                        )
+                    }
+                }
+            }
+        }
+        viewModelScope.launch { voiceController.prepareModel() }
+    }
 
     fun startConversation() {
         if (greeted || state.value.messages.isNotEmpty()) return
@@ -474,11 +612,12 @@ class VoiceViewModel @Inject constructor(
 
     fun toggleRecording() {
         when (state.value.phase) {
-            VoiceAssistantPhase.Listening,
-            is VoiceAssistantPhase.PartialResult -> stopListeningAndUsePartial()
+            is VoiceAssistantPhase.Recording -> stopRecording()
+            VoiceAssistantPhase.PreparingModel,
+            VoiceAssistantPhase.Transcribing,
             VoiceAssistantPhase.Processing,
             VoiceAssistantPhase.Speaking -> Unit
-            else -> startListening()
+            else -> startRecording()
         }
     }
 
@@ -493,117 +632,19 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun cancelListening() {
-        voiceController.cancelListening()
-        _state.update {
-            it.copy(
-                phase = VoiceAssistantPhase.Idle,
-                listening = false,
-                recording = false,
-                partialTranscript = "",
-                response = "",
-                permissionPermanentlyDenied = false,
-                error = null
-            )
-        }
+        viewModelScope.launch { voiceController.cancelListening() }
     }
 
-    private fun startListening() {
-        if (!voiceController.isSpeechRecognitionAvailable()) {
-            showError(
-                "El reconocimiento de voz no esta disponible. Puedes escribir o registrar manualmente.",
-                VoiceErrorType.ServiceUnavailable
-            )
-            return
-        }
-        val result = voiceController.startListening(
-            onPartial = { partial ->
-                _state.update {
-                    it.copy(
-                        phase = VoiceAssistantPhase.PartialResult(partial),
-                        partialTranscript = partial,
-                        transcript = partial,
-                        listening = true,
-                        recording = true,
-                        permissionPermanentlyDenied = false,
-                        error = null
-                    )
-                }
-            },
-            onFinal = { finalText ->
-                _state.update {
-                    it.copy(
-                        phase = VoiceAssistantPhase.Idle,
-                        transcript = finalText,
-                        partialTranscript = "",
-                        listening = false,
-                        recording = false,
-                        response = "Revisa la transcripción antes de enviarla.",
-                        permissionPermanentlyDenied = false,
-                        error = null
-                    )
-                }
-            },
-            onError = { recognitionError ->
-                _state.update {
-                    it.copy(
-                        phase = VoiceAssistantPhase.Error(recognitionError.type, recognitionError.message),
-                        listening = false,
-                        recording = false,
-                        partialTranscript = "",
-                        response = "",
-                        permissionPermanentlyDenied = false,
-                        error = recognitionError.message
-                    )
-                }
-            }
-        )
-        result.fold(
-            onSuccess = {
-                _state.update {
-                    it.copy(
-                        phase = VoiceAssistantPhase.Listening,
-                        listening = true,
-                        recording = true,
-                        transcribing = false,
-                        partialTranscript = "",
-                        response = "Escuchando...",
-                        permissionPermanentlyDenied = false,
-                        error = null
-                    )
-                }
-            },
-            onFailure = { error ->
-                val message = error.message ?: "No pude iniciar el microfono."
-                _state.update {
-                    it.copy(
-                        phase = VoiceAssistantPhase.Error(VoiceErrorType.ServiceUnavailable, message),
-                        listening = false,
-                        recording = false,
-                        transcribing = false,
-                        permissionPermanentlyDenied = false,
-                        error = message
-                    )
-                }
-            }
-        )
+    fun handleAppBackgrounded() {
+        viewModelScope.launch { voiceController.handleAppBackgrounded() }
     }
 
-    private fun stopListeningAndUsePartial() {
-        val partial = state.value.partialTranscript.ifBlank { state.value.transcript }.trim()
-        voiceController.cancelListening()
-        _state.update { it.copy(listening = false, recording = false, partialTranscript = "") }
-        if (partial.isBlank()) {
-            showError("No escuché una frase completa. Intenta nuevamente o escríbela.")
-        } else {
-            _state.update {
-                it.copy(
-                    phase = VoiceAssistantPhase.Idle,
-                    transcript = partial,
-                    response = "Revisa la transcripción antes de enviarla.",
-                    error = null
-                )
-            }
-        }
+    private fun startRecording() {
+        viewModelScope.launch { voiceController.startRecording() }
+    }
+
+    fun stopRecording() {
+        viewModelScope.launch { voiceController.stopRecordingAndTranscribe() }
     }
 
     fun sendText(text: String) {
@@ -665,12 +706,24 @@ class VoiceViewModel @Inject constructor(
                     }
                 }
                 is AppResult.Error -> {
-                    val message = if (result.message.contains("conectar", ignoreCase = true)) {
-                        "La interpretación inteligente necesita conexión. Conservé tu texto para reintentar."
-                    } else {
-                        "No se pudo interpretar el hábito. ${result.message}"
+                    // The deterministic voice endpoint remains available when the external
+                    // interpretation provider is down or an older backend is still deployed.
+                    when (
+                        val fallback = voiceRepository.command(
+                            text = clean,
+                            habits = habits,
+                            recentEvents = habitRepository.recentEvents(),
+                            achievements = habitRepository.achievementsSnapshot(),
+                            categories = habits.map { it.category }.filter { it.isNotBlank() }.distinct(),
+                            conversationId = state.value.conversationId
+                        )
+                    ) {
+                        is AppResult.Success -> handleVoiceResult(fallback.data, localMode = false)
+                        is AppResult.Error -> handleVoiceResult(
+                            LocalVoiceCommandParser.parse(clean, habits),
+                            localMode = true
+                        )
                     }
-                    showError(message, VoiceErrorType.Network)
                 }
             }
         }
@@ -983,7 +1036,7 @@ class VoiceViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        voiceController.shutdown()
+        voiceController.stopSpeaking()
         super.onCleared()
     }
 }
@@ -998,7 +1051,29 @@ class ManualHabitViewModel @Inject constructor(
     fun updateName(value: String) = _state.update { it.copy(name = value, error = null) }
     fun updateCategory(value: String) = _state.update { it.copy(category = value, error = null) }
     fun updateFrequency(value: String) = _state.update { it.copy(frequency = value, error = null) }
+    fun updateFrequencyType(value: String) = _state.update { it.copy(frequencyType = value, error = null) }
+    fun toggleWeekday(value: String) = _state.update {
+        it.copy(weekdays = if (value in it.weekdays) it.weekdays - value else it.weekdays + value, error = null)
+    }
+    fun updateTimesPerWeek(value: String) = _state.update { it.copy(timesPerWeek = value, error = null) }
+    fun updateIntervalDays(value: String) = _state.update { it.copy(intervalDays = value, error = null) }
+    fun updateMonthlyDays(value: String) = _state.update { it.copy(monthlyDays = value, error = null) }
+    fun updateStartDate(value: String) = _state.update { it.copy(startDate = value, error = null) }
+    fun updateEndDate(value: String) = _state.update { it.copy(endDate = value, error = null) }
+    fun updateTimezone(value: String) = _state.update { it.copy(timezone = value, error = null) }
     fun updateReminderTime(value: String) = _state.update { it.copy(reminderTime = value, error = null) }
+    fun updateMeasurementType(value: String) = _state.update {
+        it.copy(measurementType = value, measurementUnit = when (value) {
+            MeasurementType.COUNT.name -> "unidades"
+            MeasurementType.DURATION.name -> "min"
+            MeasurementType.QUANTITY.name -> "ml"
+            else -> ""
+        }, error = null)
+    }
+    fun updateTargetValue(value: String) = _state.update { it.copy(targetValue = value, error = null) }
+    fun updateMeasurementUnit(value: String) = _state.update { it.copy(measurementUnit = value, error = null) }
+    fun updateAllowPartial(value: Boolean) = _state.update { it.copy(allowPartialProgress = value, error = null) }
+    fun updateAggregationMode(value: String) = _state.update { it.copy(aggregationMode = value, error = null) }
 
     fun save() {
         val current = state.value
@@ -1006,18 +1081,68 @@ class ManualHabitViewModel @Inject constructor(
             _state.update { it.copy(error = "Escribe el nombre del habito.") }
             return
         }
+        if (current.startDate.isNotBlank() && runCatching { LocalDate.parse(current.startDate.trim()) }.isFailure) {
+            _state.update { it.copy(error = "La fecha inicial debe usar YYYY-MM-DD.") }
+            return
+        }
+        if (current.endDate.isNotBlank() && runCatching { LocalDate.parse(current.endDate.trim()) }.isFailure) {
+            _state.update { it.copy(error = "La fecha final debe usar YYYY-MM-DD.") }
+            return
+        }
+        if (runCatching { ZoneId.of(current.timezone.trim()) }.isFailure) {
+            _state.update { it.copy(error = "La zona horaria no es válida.") }
+            return
+        }
+        val schedule = current.toHabitFrequency()
+        val scheduleError = schedule.validationError()
+        if (scheduleError != null) {
+            _state.update { it.copy(error = scheduleError) }
+            return
+        }
+        val measurement = current.toHabitMeasurement()
+        measurement.validationError()?.let { error ->
+            _state.update { it.copy(error = error) }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             habitRepository.createHabit(
                 name = current.name.trim(),
                 icon = current.name.trim().take(2).uppercase(),
-                frequency = current.frequency.ifBlank { "Diario" },
+                schedule = schedule,
                 time = current.reminderTime.ifBlank { "Sin hora" },
-                category = current.category.ifBlank { "General" }
+                category = current.category.ifBlank { "General" },
+                measurement = measurement
             )
             _state.update { it.copy(loading = false, saved = true) }
         }
     }
+}
+
+private fun ManualHabitUiState.toHabitMeasurement() = HabitMeasurement(
+    type = runCatching { MeasurementType.valueOf(measurementType) }.getOrDefault(MeasurementType.BOOLEAN),
+    targetValue = targetValue.toDoubleOrNull() ?: Double.NaN,
+    unit = measurementUnit.trim(),
+    allowPartialProgress = allowPartialProgress,
+    aggregationMode = runCatching { AggregationMode.valueOf(aggregationMode) }.getOrDefault(AggregationMode.ADD)
+)
+
+private fun ManualHabitUiState.toHabitFrequency(): HabitFrequency {
+    val type = runCatching { HabitFrequencyType.valueOf(frequencyType) }.getOrDefault(HabitFrequencyType.DAILY)
+    val zone = runCatching { ZoneId.of(timezone.trim()) }.getOrDefault(ZoneId.of("America/Lima"))
+    val parsedStart = startDate.trim().takeIf(String::isNotBlank)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    val parsedEnd = endDate.trim().takeIf(String::isNotBlank)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    return HabitFrequency(
+        type = type,
+        weekdays = weekdays.mapNotNull { runCatching { DayOfWeek.valueOf(it) }.getOrNull() }.toSet(),
+        timesPerWeek = timesPerWeek.toIntOrNull(),
+        intervalDays = intervalDays.toIntOrNull(),
+        monthlyDays = monthlyDays.split(",").mapNotNull { it.trim().toIntOrNull() }.toSet(),
+        startDate = parsedStart,
+        endDate = parsedEnd,
+        timezone = zone.id,
+        effectiveFrom = parsedStart ?: LocalDate.now(zone)
+    )
 }
 
 private const val DAY_MS = 86_400_000L
@@ -1098,6 +1223,24 @@ private fun String.toHabitStatusFromInterpretation(): HabitStatus =
         "completed" -> HabitStatus.Completed
         "planned", "created", "unknown" -> HabitStatus.Pending
         else -> HabitStatus.Pending
+    }
+
+private fun WhisperErrorType.toVoiceErrorType(): VoiceErrorType =
+    when (this) {
+        WhisperErrorType.PermissionDenied,
+        WhisperErrorType.PermissionPermanentlyDenied -> VoiceErrorType.InsufficientPermissions
+        WhisperErrorType.MicrophoneBusy -> VoiceErrorType.RecognizerBusy
+        WhisperErrorType.EmptyRecording,
+        WhisperErrorType.EmptyText,
+        WhisperErrorType.RecordingTooShort -> VoiceErrorType.NoMatch
+        WhisperErrorType.InferenceCancelled,
+        WhisperErrorType.RecordingInterrupted -> VoiceErrorType.Client
+        WhisperErrorType.MicrophoneUnavailable,
+        WhisperErrorType.ModelNotFound,
+        WhisperErrorType.ModelCorrupt,
+        WhisperErrorType.ModelIncompatible,
+        WhisperErrorType.NativeLibraryUnavailable -> VoiceErrorType.ServiceUnavailable
+        else -> VoiceErrorType.Unknown
     }
 
 private fun validateInterpretedHabits(items: List<InterpretedHabitUi>): String? {

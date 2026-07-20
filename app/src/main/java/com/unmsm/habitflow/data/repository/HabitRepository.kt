@@ -4,12 +4,15 @@ import com.unmsm.habitflow.data.local.dao.AchievementDao
 import com.unmsm.habitflow.data.local.dao.CosmeticRewardDao
 import com.unmsm.habitflow.data.local.dao.HabitDao
 import com.unmsm.habitflow.data.local.dao.HabitEventDao
+import com.unmsm.habitflow.data.local.dao.HabitScheduleDao
 import com.unmsm.habitflow.data.local.dao.NotificationDao
 import com.unmsm.habitflow.data.local.dao.PlanRecommendationDao
+import com.unmsm.habitflow.data.local.dao.UserProfileDao
 import com.unmsm.habitflow.data.remote.api.HabitEventApi
-import com.unmsm.habitflow.data.remote.dto.GeoEventRequest
 import com.unmsm.habitflow.data.toDomain
 import com.unmsm.habitflow.data.toEntity
+import com.unmsm.habitflow.data.toSyncDto
+import com.unmsm.habitflow.data.toVersionEntity
 import com.unmsm.habitflow.domain.model.Achievement
 import com.unmsm.habitflow.domain.model.AppNotification
 import com.unmsm.habitflow.domain.model.CosmeticReward
@@ -21,8 +24,14 @@ import com.unmsm.habitflow.domain.model.PlanRecommendation
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.domain.model.VoicePlanResult
+import com.unmsm.habitflow.domain.habit.HabitStreakCalculator
+import com.unmsm.habitflow.domain.habit.HabitFrequency
+import com.unmsm.habitflow.domain.habit.AggregationMode
+import com.unmsm.habitflow.domain.habit.HabitMeasurement
+import com.unmsm.habitflow.domain.habit.MeasurementNormalizer
+import com.unmsm.habitflow.domain.habit.MeasurementType
 import com.unmsm.habitflow.util.AppResult
-import kotlin.math.max
+import com.unmsm.habitflow.work.HabitReminderScheduler
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -30,21 +39,29 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Singleton
 class HabitRepository @Inject constructor(
     private val habitDao: HabitDao,
     private val eventDao: HabitEventDao,
+    private val habitScheduleDao: HabitScheduleDao,
     private val achievementDao: AchievementDao,
     private val notificationDao: NotificationDao,
     private val planRecommendationDao: PlanRecommendationDao,
     private val cosmeticRewardDao: CosmeticRewardDao,
-    private val eventApi: HabitEventApi
+    private val userProfileDao: UserProfileDao,
+    private val eventApi: HabitEventApi,
+    private val reminderScheduler: HabitReminderScheduler
 ) {
+    private val eventMutationMutex = Mutex()
+
     fun observeHabits(): Flow<List<Habit>> =
         habitDao.observeActive().map { habits -> habits.map { it.toDomain() } }
 
     suspend fun activeHabits(): List<Habit> = habitDao.activeOnce().map { it.toDomain() }
+    suspend fun habitById(id: String): Habit? = habitDao.findById(id)?.toDomain()
 
     suspend fun recentEvents(limit: Int = 80): List<HabitEvent> = eventDao.recent(limit).map { it.toDomain() }
 
@@ -58,6 +75,9 @@ class HabitRepository @Inject constructor(
     fun observeEventsForHabit(habitId: String): Flow<List<HabitEvent>> =
         eventDao.observeForHabit(habitId).map { events -> events.map { it.toDomain() } }
 
+    fun observeScheduleVersions(habitId: String): Flow<List<HabitFrequency>> =
+        habitScheduleDao.observeVersionsForHabit(habitId).map { versions -> versions.map { it.toDomain() } }
+
     fun observeAchievements(): Flow<List<Achievement>> =
         achievementDao.observeAll().map { items -> items.map { it.toDomain() } }
 
@@ -69,6 +89,9 @@ class HabitRepository @Inject constructor(
 
     fun observeNotifications(): Flow<List<AppNotification>> =
         notificationDao.observeAll().map { items -> items.map { it.toDomain() } }
+
+    fun observeTimezone(): Flow<String> =
+        userProfileDao.observeCurrent().map { profile -> profile?.timezone?.takeIf { it.isNotBlank() } ?: DEFAULT_TIMEZONE }
 
     suspend fun ensureSeedData() {
         if (habitDao.count() == 0) {
@@ -154,17 +177,59 @@ class HabitRepository @Inject constructor(
     }
 
     suspend fun createHabit(name: String, icon: String, frequency: String, time: String, category: String) {
-        habitDao.upsert(
-            Habit(
-                id = UUID.randomUUID().toString(),
+        createHabit(name, icon, HabitFrequency.fromLegacy(frequency), time, category)
+    }
+
+    suspend fun createHabit(name: String, icon: String, schedule: HabitFrequency, time: String, category: String) {
+        createHabit(name, icon, schedule, time, category, HabitMeasurement())
+    }
+
+    suspend fun createHabit(
+        name: String,
+        icon: String,
+        schedule: HabitFrequency,
+        time: String,
+        category: String,
+        measurement: HabitMeasurement
+    ) {
+        require(schedule.validationError() == null) { schedule.validationError().orEmpty() }
+        require(measurement.validationError() == null) { measurement.validationError().orEmpty() }
+        val habitId = UUID.randomUUID().toString()
+        val habit = Habit(
+                id = habitId,
                 name = name,
                 icon = icon,
-                frequency = frequency,
+                frequency = schedule.displayText(),
                 reminderTime = time,
-                category = category
-            ).toEntity()
-        )
+                category = category,
+                schedule = schedule,
+                measurement = measurement
+            )
+        habitDao.upsert(habit.toEntity())
+        habitScheduleDao.upsert(schedule.toVersionEntity(habitId, UUID.randomUUID().toString()))
+        reminderScheduler.schedule(habit)
+        syncHabit(habit)
     }
+
+    suspend fun updateHabitSchedule(habitId: String, schedule: HabitFrequency, effectiveFrom: LocalDate): AppResult<Unit> =
+        runCatching {
+            require(schedule.validationError() == null) { schedule.validationError().orEmpty() }
+            val habit = habitDao.findById(habitId)?.toDomain() ?: error("No se encontró el hábito.")
+            val versionedSchedule = schedule.copy(effectiveFrom = effectiveFrom, effectiveTo = null)
+            habitScheduleDao.closeCurrentVersion(habitId, effectiveFrom.minusDays(1).toString())
+            habitScheduleDao.upsert(versionedSchedule.toVersionEntity(habitId, UUID.randomUUID().toString()))
+            habitDao.upsert(
+                habit.copy(
+                    frequency = versionedSchedule.displayText(),
+                    schedule = versionedSchedule
+                ).toEntity()
+            )
+            habitDao.findById(habitId)?.toDomain()?.let(reminderScheduler::schedule)
+            recalculateStreak(habitId, userZoneId())
+        }.fold(
+            onSuccess = { AppResult.Success(Unit) },
+            onFailure = { AppResult.Error(it.message ?: "No se pudo actualizar la frecuencia.", it) }
+        )
 
     suspend fun applyVoiceCommand(result: VoiceCommandResult): AppResult<HabitEvent>? {
         if (result.intent != "registrar_habito") return null
@@ -190,9 +255,109 @@ class HabitRepository @Inject constructor(
                     category = "Voz"
                 ).also { habitDao.upsert(it.toEntity()) }
 
-            lastResult = markHabit(habit, event.status, voiceNote(event), event.eventTimestamp())
+            lastResult = if (
+                event.status == HabitStatus.Completed &&
+                habit.measurement.type != MeasurementType.BOOLEAN &&
+                event.quantity != null && !event.unit.isNullOrBlank()
+            ) {
+                recordProgress(
+                    habit = habit,
+                    value = event.quantity,
+                    unit = event.unit,
+                    aggregationMode = event.aggregationMode,
+                    idempotencyKey = event.idempotencyKey,
+                    source = "VOICE",
+                    timestamp = event.eventTimestamp(userZoneId())
+                )
+            } else {
+                markHabit(habit, event.status, voiceNote(event), event.eventTimestamp(userZoneId()))
+            }
         }
         return lastResult
+    }
+
+    suspend fun recordProgress(
+        habit: Habit,
+        value: Double,
+        unit: String,
+        aggregationMode: AggregationMode = habit.measurement.aggregationMode,
+        idempotencyKey: String? = null,
+        source: String = "MANUAL",
+        timestamp: Long = System.currentTimeMillis()
+    ): AppResult<HabitEvent> = eventMutationMutex.withLock {
+        runCatching {
+            require(habit.measurement.type != MeasurementType.BOOLEAN) { "Este hábito solo admite completado o no completado." }
+            idempotencyKey?.let { key ->
+                eventDao.findByIdempotencyKey(key)?.toDomain()?.let { return@withLock AppResult.Success(it) }
+            }
+            val normalized = MeasurementNormalizer.normalize(value, unit, habit.measurement.unit)
+            val zoneId = userZoneId()
+            val localDate = java.time.Instant.ofEpochMilli(timestamp).atZone(zoneId).toLocalDate()
+            val dayStart = localDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val dayEnd = localDate.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val prior = eventDao.forHabitOnce(habit.id)
+                .map { it.toDomain() }
+                .filter { it.timestamp in dayStart until dayEnd && it.normalizedValue != null }
+            val total = aggregateProgress(prior + HabitEvent(
+                id = "candidate",
+                habitId = habit.id,
+                habitName = habit.name,
+                status = HabitStatus.Pending,
+                timestamp = timestamp,
+                value = value,
+                normalizedValue = normalized.value,
+                unit = normalized.unit,
+                aggregationMode = aggregationMode
+            ))
+            val event = HabitEvent(
+                id = UUID.randomUUID().toString(),
+                habitId = habit.id,
+                habitName = habit.name,
+                status = if (total >= normalizedTarget(habit.measurement)) HabitStatus.Completed else HabitStatus.Pending,
+                timestamp = timestamp,
+                note = "Progreso: $value $unit",
+                value = value,
+                normalizedValue = normalized.value,
+                unit = normalized.unit,
+                aggregationMode = aggregationMode,
+                idempotencyKey = idempotencyKey,
+                source = source
+            )
+            eventDao.upsert(event.toEntity())
+            recalculateStreak(habit.id, zoneId)
+            event
+        }.fold(
+            onSuccess = { AppResult.Success(it) },
+            onFailure = { AppResult.Error(it.message ?: "No se pudo registrar el progreso.", it) }
+        )
+    }
+
+    suspend fun correctProgress(eventId: String, value: Double, unit: String): AppResult<HabitEvent> =
+        eventMutationMutex.withLock {
+            runCatching {
+                val existing = eventDao.findById(eventId)?.toDomain() ?: error("No se encontró el progreso.")
+                val habit = habitDao.findById(existing.habitId)?.toDomain() ?: error("No se encontró el hábito.")
+                val normalized = MeasurementNormalizer.normalize(value, unit, habit.measurement.unit)
+                val corrected = existing.copy(value = value, normalizedValue = normalized.value, unit = normalized.unit, synced = false)
+                eventDao.upsert(corrected.toEntity())
+                recalculateProgressStatusesForDay(habit, corrected.timestamp)
+                recalculateStreak(habit.id, userZoneId())
+                eventDao.findById(eventId)!!.toDomain()
+            }.fold(
+                onSuccess = { AppResult.Success(it) },
+                onFailure = { AppResult.Error(it.message ?: "No se pudo corregir el progreso.", it) }
+            )
+        }
+
+    private suspend fun recalculateProgressStatusesForDay(habit: Habit, timestamp: Long) {
+        val zoneId = userZoneId()
+        val date = java.time.Instant.ofEpochMilli(timestamp).atZone(zoneId).toLocalDate()
+        val start = date.atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val end = date.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val events = eventDao.forHabitOnce(habit.id).map { it.toDomain() }
+            .filter { it.timestamp in start until end && it.normalizedValue != null }
+        val complete = aggregateProgress(events) >= normalizedTarget(habit.measurement)
+        events.forEach { eventDao.upsert(it.copy(status = if (complete) HabitStatus.Completed else HabitStatus.Pending).toEntity()) }
     }
 
     private fun voiceNote(event: VoiceEventResult): String {
@@ -210,7 +375,19 @@ class HabitRepository @Inject constructor(
         status: HabitStatus,
         note: String = "",
         timestamp: Long = System.currentTimeMillis()
-    ): AppResult<HabitEvent> {
+    ): AppResult<HabitEvent> = eventMutationMutex.withLock {
+        val zoneId = userZoneId()
+        if (status == HabitStatus.Completed) {
+            val localDate = java.time.Instant.ofEpochMilli(timestamp).atZone(zoneId).toLocalDate()
+            val dayStart = localDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val dayEnd = localDate.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val existing = eventDao.completedForLocalDay(habit.id, dayStart, dayEnd)?.toDomain()
+            if (existing != null) {
+                if (note.isNotBlank() && note != existing.note) eventDao.updateNote(existing.id, note)
+                recalculateStreak(habit.id, zoneId)
+                return@withLock AppResult.Success(existing.copy(note = note.ifBlank { existing.note }))
+            }
+        }
         val event = HabitEvent(
             id = UUID.randomUUID().toString(),
             habitId = habit.id,
@@ -221,63 +398,96 @@ class HabitRepository @Inject constructor(
             synced = false
         )
         eventDao.upsert(event.toEntity())
-        if (status == HabitStatus.Completed) {
-            val nextStreak = habit.streak + 1
-            habitDao.upsert(habit.copy(streak = nextStreak, bestStreak = max(habit.bestStreak, nextStreak)).toEntity())
-        }
+        recalculateStreak(habit.id, zoneId)
         val syncResult = syncEvent(event)
-        return when (syncResult) {
+        when (syncResult) {
             is AppResult.Success -> syncResult
             is AppResult.Error -> AppResult.Success(event)
         }
     }
 
-    suspend fun undoEvent(eventId: String): AppResult<Unit> {
-        val event = eventDao.findById(eventId)?.toDomain() ?: return AppResult.Error("No encontré la acción para deshacer.")
+    suspend fun undoEvent(eventId: String): AppResult<Unit> = eventMutationMutex.withLock {
+        val event = eventDao.findById(eventId)?.toDomain()
+            ?: return@withLock AppResult.Error("No encontré la acción para deshacer.")
         eventDao.deleteById(eventId)
-        if (event.status == HabitStatus.Completed) {
-            val habit = habitDao.findById(event.habitId)?.toDomain()
-            if (habit != null) {
-                habitDao.upsert(habit.copy(streak = (habit.streak - 1).coerceAtLeast(0)).toEntity())
-            }
-        }
-        return AppResult.Success(Unit)
+        recalculateStreak(event.habitId, userZoneId())
+        AppResult.Success(Unit)
     }
 
-    suspend fun addNote(habit: Habit, note: String): AppResult<HabitEvent> =
-        markHabit(habit, HabitStatus.Completed, note)
+    suspend fun addNote(habit: Habit, note: String): AppResult<HabitEvent> {
+        val existing = eventDao.latestForHabit(habit.id)?.toDomain()
+        if (existing != null) {
+            eventDao.updateNote(existing.id, note)
+            return AppResult.Success(existing.copy(note = note, synced = false))
+        }
+        return markHabit(habit, HabitStatus.Pending, note)
+    }
+
+    private suspend fun recalculateStreak(habitId: String, zoneId: ZoneId) {
+        val habit = habitDao.findById(habitId)?.toDomain() ?: return
+        val events = eventDao.forHabitOnce(habitId).map { it.toDomain() }
+        val versions = habitScheduleDao.versionsForHabit(habitId).map { it.toDomain() }
+        val metrics = HabitStreakCalculator.calculate(habit, events, LocalDate.now(zoneId), zoneId, versions)
+        habitDao.upsert(habit.copy(streak = metrics.currentStreak, bestStreak = metrics.bestStreak).toEntity())
+    }
+
+    private suspend fun userZoneId(): ZoneId {
+        val configured = userProfileDao.currentOnce()?.timezone.orEmpty()
+        return runCatching { ZoneId.of(configured) }.getOrDefault(ZoneId.of(DEFAULT_TIMEZONE))
+    }
 
     suspend fun syncEvent(event: HabitEvent): AppResult<HabitEvent> =
         runNetwork {
-            eventApi.create(
-                GeoEventRequest(
-                    eventType = event.habitName,
-                    deviceId = event.habitId,
-                    notes = "status=${event.status.name}; note=${event.note}",
-                    metadata = mapOf(
-                        "habit_id" to event.habitId,
-                        "habit_name" to event.habitName,
-                        "status" to event.status.name,
-                        "platform" to "android",
-                        "app_version" to "1.0"
-                    )
-                )
-            )
+            eventApi.upsertEvent(event.id, event.toSyncDto())
             eventDao.markSynced(event.id)
             event.copy(synced = true)
         }
 
+    suspend fun syncHabit(habit: Habit): AppResult<Habit> =
+        runNetwork {
+            eventApi.upsertHabit(habit.id, habit.toSyncDto())
+            habit
+        }
+
     suspend fun syncPending() {
+        habitDao.activeOnce().forEach { entity ->
+            syncHabit(entity.toDomain())
+        }
         eventDao.unsynced().forEach { entity ->
             syncEvent(entity.toDomain())
         }
     }
 
-    suspend fun pullRemoteHistory(): AppResult<Unit> =
-        runNetwork {
-            val remoteEvents = eventApi.list().map { it.toEntity() }
-            eventDao.upsertAll(remoteEvents)
+    suspend fun syncBeforeLogout(): AppResult<Unit> {
+        for (habit in habitDao.activeOnce().map { it.toDomain() }) {
+            val result = syncHabit(habit)
+            if (result is AppResult.Error) return AppResult.Error(result.message, result.cause)
         }
+        for (event in eventDao.unsynced().map { it.toDomain() }) {
+            val result = syncEvent(event)
+            if (result is AppResult.Error) return AppResult.Error(result.message, result.cause)
+        }
+        return AppResult.Success(Unit)
+    }
+
+    suspend fun pullRemoteData(): AppResult<Unit> =
+        runNetwork {
+            val remoteHabits = eventApi.listHabits().map { it.toEntity() }
+            habitDao.upsertAll(remoteHabits)
+            remoteHabits.forEach { entity ->
+                val habit = entity.toDomain()
+                habitScheduleDao.upsert(
+                    habit.schedule.toVersionEntity(habit.id, "${habit.id}-remote-current")
+                )
+                reminderScheduler.schedule(habit)
+            }
+            val remoteEvents = eventApi.listEvents().map { it.toEntity() }
+            eventDao.upsertAll(remoteEvents)
+            val zoneId = userZoneId()
+            remoteEvents.map { it.habitId }.distinct().forEach { recalculateStreak(it, zoneId) }
+        }
+
+    suspend fun pullRemoteHistory(): AppResult<Unit> = pullRemoteData()
 }
 
 private fun demoHabits(): List<Habit> = listOf(
@@ -331,11 +541,27 @@ private data class DemoHabitHistory(
 )
 
 private const val DAY_MS = 86_400_000L
+private const val DEFAULT_TIMEZONE = "America/Lima"
 
-private fun VoiceEventResult.eventTimestamp(): Long =
+internal fun aggregateProgress(events: List<HabitEvent>): Double {
+    var total = 0.0
+    events.sortedWith(compareBy<HabitEvent> { it.timestamp }.thenBy { it.id }).forEach { event ->
+        val value = event.normalizedValue ?: return@forEach
+        total = when (event.aggregationMode ?: AggregationMode.ADD) {
+            AggregationMode.ADD -> total + value
+            AggregationMode.SET_TOTAL, AggregationMode.REPLACE -> value
+        }
+    }
+    return total
+}
+
+private fun normalizedTarget(measurement: HabitMeasurement): Double =
+    MeasurementNormalizer.normalize(measurement.targetValue, measurement.unit).value
+
+private fun VoiceEventResult.eventTimestamp(zoneId: ZoneId): Long =
     date
         ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-        ?.atStartOfDay(ZoneId.of("America/Lima"))
+        ?.atStartOfDay(zoneId)
         ?.toInstant()
         ?.toEpochMilli()
         ?: System.currentTimeMillis()

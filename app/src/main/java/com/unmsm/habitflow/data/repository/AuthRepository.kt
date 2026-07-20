@@ -153,7 +153,7 @@ fun <T> networkError(error: Throwable): AppResult<T> {
             403 -> "No tienes permiso para completar esta accion."
             404 -> "No encontramos el servicio de HabitFlow. Revisa la URL configurada."
             422 -> "Email o datos invalidos. Revisa el correo y la contrasena."
-            502 -> "El proveedor de transcripcion rechazo el audio o la clave STT."
+            502 -> "El servicio inteligente no pudo procesar la solicitud. Intentalo nuevamente."
             503 -> "HabitFlow esta iniciando. Intentalo nuevamente en unos segundos."
             in 500..599 -> "No pudimos conectar con HabitFlow. Intentalo nuevamente."
             else -> "No pudimos completar la solicitud. Intentalo nuevamente."

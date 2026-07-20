@@ -65,6 +65,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import com.unmsm.habitflow.domain.model.HabitStatus
+import com.unmsm.habitflow.domain.habit.HabitHeatmap
+import com.unmsm.habitflow.domain.habit.HeatmapDayState
+import com.unmsm.habitflow.domain.habit.HabitFrequencyType
+import com.unmsm.habitflow.domain.habit.AggregationMode
+import com.unmsm.habitflow.domain.habit.MeasurementType
 import com.unmsm.habitflow.ui.components.ClayCard
 import com.unmsm.habitflow.ui.components.HabitFlowAvatar
 import com.unmsm.habitflow.ui.components.HabitFlowCategoryChip
@@ -101,6 +106,8 @@ import com.unmsm.habitflow.ui.viewmodel.SettingsViewModel
 import com.unmsm.habitflow.ui.viewmodel.StatsViewModel
 import com.unmsm.habitflow.ui.viewmodel.VoiceViewModel
 import com.unmsm.habitflow.voice.VoiceErrorType
+import com.unmsm.habitflow.voice.MicrophonePermissionState
+import com.unmsm.habitflow.voice.microphonePermissionState
 import androidx.core.app.ActivityCompat
 import java.text.DateFormat
 import java.text.SimpleDateFormat
@@ -249,14 +256,25 @@ fun HabitDetailScreen(padding: PaddingValues, viewModel: HabitDetailViewModel = 
         }
         item {
             HabitFlowSectionHeader("Heatmap del mes")
-            Heatmap()
+            Heatmap(state.heatmap)
         }
         item {
             ClayCard {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (habit != null && habit.measurement.type != MeasurementType.BOOLEAN) {
+                        Text("Meta: ${habit.measurement.targetValue} ${habit.measurement.unit}")
+                        HabitFlowOutlinedField(
+                            state.progressValue,
+                            "Progreso en ${habit.measurement.unit}",
+                            viewModel::updateProgressValue
+                        )
+                        HabitFlowPrimaryButton("Registrar progreso", viewModel::recordProgress)
+                    }
                     HabitFlowOutlinedField(state.note, "Agregar nota", viewModel::updateNote, singleLine = false)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        HabitFlowPrimaryButton("Marcar hoy", viewModel::markToday, modifier = Modifier.weight(1f))
+                        if (habit?.measurement?.type == MeasurementType.BOOLEAN) {
+                            HabitFlowPrimaryButton("Marcar hoy", viewModel::markToday, modifier = Modifier.weight(1f))
+                        }
                         HabitFlowSecondaryButton("Guardar nota", viewModel::addNote, modifier = Modifier.weight(1f))
                     }
                 }
@@ -672,6 +690,9 @@ fun SettingsScreen(
                 enabled = !state.loggingOut
             )
         }
+        state.logoutError?.let { message ->
+            item { Text(message, color = MaterialTheme.colorScheme.error) }
+        }
         item {
             TextButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
@@ -762,10 +783,14 @@ fun VoiceScreen(
     val lifecycleOwner = remember(context) { context.findActivity() as? LifecycleOwner }
     var typedText by rememberSaveable { mutableStateOf("") }
     var lastTranscript by rememberSaveable { mutableStateOf("") }
+    var permissionRequestedBefore by rememberSaveable { mutableStateOf(false) }
+    var permissionRequestWasRepeat by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) { viewModel.startConversation() }
     LaunchedEffect(state.transcript) {
         if (state.transcript.isNotBlank() && state.transcript != lastTranscript) {
-            typedText = state.transcript
+            if (typedText.isBlank() || typedText == lastTranscript) {
+                typedText = state.transcript
+            }
             lastTranscript = state.transcript
         }
     }
@@ -773,13 +798,15 @@ fun VoiceScreen(
         val lifecycle = lifecycleOwner?.lifecycle
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                viewModel.cancelListening()
+                viewModel.handleAppBackgrounded()
             }
         }
         lifecycle?.addObserver(observer)
         onDispose {
             lifecycle?.removeObserver(observer)
-            viewModel.cancelListening()
+            if (lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true) {
+                viewModel.cancelListening()
+            }
         }
     }
     val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -787,9 +814,14 @@ fun VoiceScreen(
             viewModel.toggleRecording()
         } else {
             val activity = context.findActivity()
-            val permanentlyDenied = activity?.let {
-                !ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.RECORD_AUDIO)
-            } ?: false
+            val permissionState = microphonePermissionState(
+                granted = false,
+                requestedBefore = permissionRequestWasRepeat,
+                shouldShowRationale = activity?.let {
+                    ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.RECORD_AUDIO)
+                } ?: false
+            )
+            val permanentlyDenied = permissionState == MicrophonePermissionState.PermanentlyDenied
             val message = if (permanentlyDenied) {
                 "El permiso de micrófono quedó bloqueado. Ábrelo en ajustes para registrar con voz."
             } else {
@@ -810,12 +842,18 @@ fun VoiceScreen(
             )
         )
     }
-    val onMicClick = {
+    val onMicClick: () -> Unit = onMicClick@{
+        if (state.phase == VoiceAssistantPhase.PreparingModel ||
+            state.phase == VoiceAssistantPhase.Transcribing ||
+            state.phase == VoiceAssistantPhase.Processing
+        ) return@onMicClick
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         if (granted) {
             viewModel.toggleRecording()
         } else {
             viewModel.requestMicrophonePermission()
+            permissionRequestWasRepeat = permissionRequestedBefore
+            permissionRequestedBefore = true
             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
@@ -837,34 +875,50 @@ fun VoiceScreen(
                     )
                 }
                 HabitFlowVoiceOrb(
-                    listening = state.phase == VoiceAssistantPhase.Listening || state.phase is VoiceAssistantPhase.PartialResult,
-                    processing = state.phase == VoiceAssistantPhase.Processing,
+                    listening = state.phase is VoiceAssistantPhase.Recording,
+                    processing = state.phase == VoiceAssistantPhase.Processing ||
+                        state.phase == VoiceAssistantPhase.Transcribing ||
+                        state.phase == VoiceAssistantPhase.PreparingModel,
                     onClick = onMicClick
                 )
             }
         }
-        if (state.partialTranscript.isNotBlank()) {
+        if (state.phase == VoiceAssistantPhase.ModelNotPrepared || state.phase == VoiceAssistantPhase.PreparingModel) {
             item {
-                ClayCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
-                    Text(state.partialTranscript, modifier = Modifier.padding(16.dp), fontWeight = FontWeight.SemiBold)
+                ClayCard(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text("Preparando el modelo local de voz…", fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
-        if (state.phase == VoiceAssistantPhase.Listening || state.phase is VoiceAssistantPhase.PartialResult) {
+        if (state.phase is VoiceAssistantPhase.Recording) {
             item {
                 ClayCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Escuchando...", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("Puedes cancelar sin guardar nada.")
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Grabando…", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("${state.recordingDurationMillis / 1_000}.${(state.recordingDurationMillis % 1_000) / 100} s / 15 s")
+                        LinearProgressIndicator(
+                            progress = { state.audioLevel.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            HabitFlowPrimaryButton("Detener", viewModel::stopRecording, modifier = Modifier.weight(1f))
+                            HabitFlowSecondaryButton("Cancelar", viewModel::cancelListening, modifier = Modifier.weight(1f))
                         }
-                        TextButton(onClick = viewModel::cancelListening) {
-                            Text("Cancelar")
-                        }
+                    }
+                }
+            }
+        }
+        if (state.phase == VoiceAssistantPhase.Transcribing) {
+            item {
+                ClayCard(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text("Whisper está convirtiendo tu voz en texto…", fontWeight = FontWeight.SemiBold)
+                        Text("La voz se procesa localmente en tu dispositivo.")
+                        TextButton(onClick = viewModel::cancelListening) { Text("Cancelar") }
                     }
                 }
             }
@@ -963,18 +1017,29 @@ fun VoiceScreen(
         item {
             ClayCard {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "La voz se procesa localmente con Whisper. HabitFlow enviará únicamente el texto cuando pulses Enviar.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     HabitFlowOutlinedField(typedText, "Transcripción editable o texto manual", { typedText = it }, singleLine = false)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HabitFlowSecondaryButton("Manual", onManual, modifier = Modifier.weight(1f))
+                        HabitFlowSecondaryButton(
+                            if (state.transcript.isBlank()) "Manual" else "Volver a grabar",
+                            if (state.transcript.isBlank()) onManual else onMicClick,
+                            modifier = Modifier.weight(1f)
+                        )
                         HabitFlowPrimaryButton(
                             "Enviar",
                             onClick = {
                                 viewModel.sendText(typedText)
-                                if (typedText.isNotBlank()) typedText = ""
                             },
                             modifier = Modifier.weight(1f),
                             enabled = typedText.isNotBlank() &&
                                 state.phase != VoiceAssistantPhase.Processing &&
+                                state.phase != VoiceAssistantPhase.Transcribing &&
+                                state.phase != VoiceAssistantPhase.PreparingModel &&
+                                state.phase !is VoiceAssistantPhase.Recording &&
                                 !state.savingInterpretation
                         )
                     }
@@ -1104,7 +1169,102 @@ fun ManualHabitScreen(
         }
         item { HabitFlowOutlinedField(state.name, "Nombre del hábito", viewModel::updateName) }
         item { HabitFlowOutlinedField(state.category, "Categoría", viewModel::updateCategory) }
-        item { HabitFlowOutlinedField(state.frequency, "Frecuencia", viewModel::updateFrequency) }
+        item { HabitFlowSectionHeader("Frecuencia") }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(
+                    listOf(
+                        HabitFrequencyType.DAILY to "Diario",
+                        HabitFrequencyType.SPECIFIC_WEEKDAYS to "Días",
+                        HabitFrequencyType.TIMES_PER_WEEK to "Por semana",
+                        HabitFrequencyType.INTERVAL_DAYS to "Intervalo",
+                        HabitFrequencyType.MONTHLY_DATES to "Mensual",
+                        HabitFrequencyType.ONE_TIME to "Una vez"
+                    )
+                ) { (type, label) ->
+                    HabitFlowCategoryChip(
+                        label,
+                        selected = state.frequencyType == type.name,
+                        onClick = { viewModel.updateFrequencyType(type.name) }
+                    )
+                }
+            }
+        }
+        when (state.frequencyType) {
+            HabitFrequencyType.SPECIFIC_WEEKDAYS.name -> item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(
+                        listOf(
+                            "MONDAY" to "Lun", "TUESDAY" to "Mar", "WEDNESDAY" to "Mié",
+                            "THURSDAY" to "Jue", "FRIDAY" to "Vie", "SATURDAY" to "Sáb", "SUNDAY" to "Dom"
+                        )
+                    ) { (day, label) ->
+                        HabitFlowCategoryChip(
+                            label = label,
+                            selected = day in state.weekdays,
+                            onClick = { viewModel.toggleWeekday(day) }
+                        )
+                    }
+                }
+            }
+            HabitFrequencyType.TIMES_PER_WEEK.name -> item {
+                HabitFlowOutlinedField(state.timesPerWeek, "Veces por semana (1-7)", viewModel::updateTimesPerWeek)
+            }
+            HabitFrequencyType.INTERVAL_DAYS.name -> item {
+                HabitFlowOutlinedField(state.intervalDays, "Cada cuántos días", viewModel::updateIntervalDays)
+            }
+            HabitFrequencyType.MONTHLY_DATES.name -> item {
+                HabitFlowOutlinedField(state.monthlyDays, "Días del mes, separados por coma", viewModel::updateMonthlyDays)
+            }
+        }
+        if (state.frequencyType == HabitFrequencyType.INTERVAL_DAYS.name ||
+            state.frequencyType == HabitFrequencyType.ONE_TIME.name
+        ) {
+            item { HabitFlowOutlinedField(state.startDate, "Fecha inicial (YYYY-MM-DD)", viewModel::updateStartDate) }
+        }
+        if (state.frequencyType != HabitFrequencyType.ONE_TIME.name) {
+            item { HabitFlowOutlinedField(state.endDate, "Fecha final opcional (YYYY-MM-DD)", viewModel::updateEndDate) }
+        }
+        item { HabitFlowOutlinedField(state.timezone, "Zona horaria", viewModel::updateTimezone) }
+        item { HabitFlowSectionHeader("Objetivo") }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf(
+                    MeasurementType.BOOLEAN to "Sí/No", MeasurementType.COUNT to "Conteo",
+                    MeasurementType.DURATION to "Duración", MeasurementType.QUANTITY to "Cantidad"
+                )) { (type, label) ->
+                    HabitFlowCategoryChip(
+                        label = label,
+                        selected = state.measurementType == type.name,
+                        onClick = { viewModel.updateMeasurementType(type.name) }
+                    )
+                }
+            }
+        }
+        if (state.measurementType != MeasurementType.BOOLEAN.name) {
+            item { HabitFlowOutlinedField(state.targetValue, "Meta", viewModel::updateTargetValue) }
+            item { HabitFlowOutlinedField(state.measurementUnit, "Unidad", viewModel::updateMeasurementUnit) }
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Permitir progreso parcial", modifier = Modifier.weight(1f))
+                    Switch(state.allowPartialProgress, viewModel::updateAllowPartial)
+                }
+            }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(listOf(
+                        AggregationMode.ADD to "Sumar", AggregationMode.SET_TOTAL to "Establecer total",
+                        AggregationMode.REPLACE to "Reemplazar"
+                    )) { (mode, label) ->
+                        HabitFlowCategoryChip(
+                            label = label,
+                            selected = state.aggregationMode == mode.name,
+                            onClick = { viewModel.updateAggregationMode(mode.name) }
+                        )
+                    }
+                }
+            }
+        }
         item { HabitFlowOutlinedField(state.reminderTime, "Hora o nota", viewModel::updateReminderTime) }
         if (state.error != null) {
             item { Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error) }
@@ -1172,17 +1332,40 @@ private fun AccentChoiceChip(
 }
 
 @Composable
-private fun Heatmap() {
+private fun Heatmap(heatmap: HabitHeatmap) {
+    if (!heatmap.hasActivity) {
+        Text(
+            "Todavía no tienes actividad registrada.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+    val leadingEmptyDays = heatmap.days.firstOrNull()?.date?.dayOfWeek?.value?.minus(1) ?: 0
+    val cells = List(leadingEmptyDays) { null } + heatmap.days
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        repeat(5) { row ->
+        cells.chunked(7).forEach { week ->
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                repeat(7) { col ->
-                    val active = (row + col) % 3 != 0
+                week.forEach { day ->
+                    if (day == null) {
+                        Box(Modifier.size(32.dp))
+                        return@forEach
+                    }
+                    val color = when (day.state) {
+                        HeatmapDayState.Completed -> MaterialTheme.colorScheme.tertiary
+                        HeatmapDayState.Partial -> MaterialTheme.colorScheme.secondary
+                        HeatmapDayState.Skipped -> MaterialTheme.colorScheme.errorContainer
+                        HeatmapDayState.ScheduledEmpty -> MaterialTheme.colorScheme.surfaceVariant
+                        HeatmapDayState.NotScheduled -> MaterialTheme.colorScheme.surfaceContainer
+                        HeatmapDayState.Future -> MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.45f)
+                    }
                     Box(
                         Modifier.size(32.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(if (active) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant)
-                    )
+                            .background(color),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(day.date.dayOfMonth.toString(), style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }
@@ -1197,10 +1380,13 @@ private fun signedCount(value: Int): String =
 
 private fun voiceStatusLabel(phase: VoiceAssistantPhase): String =
     when (phase) {
-        VoiceAssistantPhase.Idle -> "Listo para escuchar"
+        VoiceAssistantPhase.Idle,
+        VoiceAssistantPhase.Ready -> "Listo para registrar con voz"
+        VoiceAssistantPhase.ModelNotPrepared -> "Modelo no preparado"
+        VoiceAssistantPhase.PreparingModel -> "Preparando Whisper local"
         VoiceAssistantPhase.RequestingPermission -> "Solicitando permiso"
-        VoiceAssistantPhase.Listening -> "Escuchando"
-        is VoiceAssistantPhase.PartialResult -> "Transcribiendo en vivo"
+        is VoiceAssistantPhase.Recording -> "Grabando"
+        VoiceAssistantPhase.Transcribing -> "Transcribiendo localmente"
         VoiceAssistantPhase.Processing -> "Pensando"
         VoiceAssistantPhase.AwaitingConfirmation -> "Confirmando"
         VoiceAssistantPhase.Speaking -> "Respondiendo"

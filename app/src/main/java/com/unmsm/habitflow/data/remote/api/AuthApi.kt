@@ -15,7 +15,7 @@ import retrofit2.http.PUT
 import retrofit2.Response
 
 interface AuthApi {
-    @GET("/health")
+    @GET("health")
     suspend fun health(): Response<Unit>
 
     @POST("auth/register")

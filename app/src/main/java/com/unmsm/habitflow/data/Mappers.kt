@@ -4,10 +4,13 @@ import com.unmsm.habitflow.data.local.entity.AchievementEntity
 import com.unmsm.habitflow.data.local.entity.CosmeticRewardEntity
 import com.unmsm.habitflow.data.local.entity.HabitEntity
 import com.unmsm.habitflow.data.local.entity.HabitEventEntity
+import com.unmsm.habitflow.data.local.entity.HabitScheduleVersionEntity
 import com.unmsm.habitflow.data.local.entity.NotificationEntity
 import com.unmsm.habitflow.data.local.entity.PlanRecommendationEntity
 import com.unmsm.habitflow.data.local.entity.UserProfileEntity
 import com.unmsm.habitflow.data.remote.dto.GeoEventDto
+import com.unmsm.habitflow.data.remote.dto.HabitEventSyncDto
+import com.unmsm.habitflow.data.remote.dto.HabitSyncDto
 import com.unmsm.habitflow.data.remote.dto.HabitInterpretationResponse
 import com.unmsm.habitflow.data.remote.dto.UserDto
 import com.unmsm.habitflow.data.remote.dto.VoiceCommandResponse
@@ -27,7 +30,15 @@ import com.unmsm.habitflow.domain.model.User
 import com.unmsm.habitflow.domain.model.VoiceCommandResult
 import com.unmsm.habitflow.domain.model.VoiceEventResult
 import com.unmsm.habitflow.domain.model.VoicePlanResult
+import com.unmsm.habitflow.domain.habit.HabitFrequency
+import com.unmsm.habitflow.domain.habit.HabitFrequencyType
+import com.unmsm.habitflow.domain.habit.AggregationMode
+import com.unmsm.habitflow.domain.habit.HabitMeasurement
+import com.unmsm.habitflow.domain.habit.MeasurementType
+import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
+import java.util.UUID
 
 fun UserDto.toDomain() = User(
     id = id.ifBlank { email },
@@ -93,9 +104,131 @@ fun UserProfileEntity.toDomain() = User(
     profileComplete = profileComplete
 )
 
-fun HabitEntity.toDomain() = Habit(id, name, icon, frequency, reminderTime, category, isActive, streak, bestStreak)
+fun HabitEntity.toDomain() = Habit(
+    id = id,
+    name = name,
+    icon = icon,
+    frequency = frequency,
+    reminderTime = reminderTime,
+    category = category,
+    isActive = isActive,
+    streak = streak,
+    bestStreak = bestStreak,
+    schedule = structuredFrequency(),
+    measurement = HabitMeasurement(
+        type = runCatching { MeasurementType.valueOf(measurementType) }.getOrDefault(MeasurementType.BOOLEAN),
+        targetValue = targetValue,
+        unit = measurementUnit,
+        allowPartialProgress = allowPartialProgress,
+        aggregationMode = runCatching { AggregationMode.valueOf(aggregationMode) }.getOrDefault(AggregationMode.ADD)
+    )
+)
 
-fun Habit.toEntity() = HabitEntity(id, name, icon, frequency, reminderTime, category, isActive, streak, bestStreak)
+fun Habit.toEntity() = HabitEntity(
+    id = id,
+    name = name,
+    icon = icon,
+    frequency = schedule.displayText(),
+    reminderTime = reminderTime,
+    category = category,
+    isActive = isActive,
+    streak = streak,
+    bestStreak = bestStreak,
+    frequencyType = schedule.type.name,
+    weekdaysCsv = schedule.weekdays.joinToString(",") { it.name },
+    timesPerWeek = schedule.timesPerWeek,
+    intervalDays = schedule.intervalDays,
+    monthlyDaysCsv = schedule.monthlyDays.sorted().joinToString(","),
+    scheduleStartDate = schedule.startDate?.toString(),
+    scheduleEndDate = schedule.endDate?.toString(),
+    scheduleTimezone = schedule.timezone,
+    scheduleActive = schedule.active,
+    frequencyNeedsReview = schedule.needsReview,
+    frequencyOriginal = schedule.originalText.ifBlank { frequency },
+    scheduleEffectiveFrom = schedule.effectiveFrom?.toString(),
+    measurementType = measurement.type.name,
+    targetValue = measurement.targetValue,
+    measurementUnit = measurement.unit,
+    allowPartialProgress = measurement.allowPartialProgress,
+    aggregationMode = measurement.aggregationMode.name
+)
+
+fun Habit.toSyncDto() = toEntity().let { entity ->
+    HabitSyncDto(
+        entity.id, entity.name, entity.icon, entity.frequency, entity.reminderTime, entity.category,
+        entity.isActive, entity.frequencyType, entity.weekdaysCsv, entity.timesPerWeek,
+        entity.intervalDays, entity.monthlyDaysCsv, entity.scheduleStartDate, entity.scheduleEndDate,
+        entity.scheduleTimezone, entity.scheduleActive, entity.frequencyNeedsReview,
+        entity.frequencyOriginal, entity.scheduleEffectiveFrom, entity.measurementType,
+        entity.targetValue, entity.measurementUnit, entity.allowPartialProgress, entity.aggregationMode
+    )
+}
+
+fun HabitSyncDto.toEntity() = HabitEntity(
+    id, name, icon, frequency, reminderTime, category, isActive, 0, 0, frequencyType,
+    weekdaysCsv, timesPerWeek, intervalDays, monthlyDaysCsv, scheduleStartDate, scheduleEndDate,
+    scheduleTimezone, scheduleActive, frequencyNeedsReview, frequencyOriginal,
+    scheduleEffectiveFrom, measurementType, targetValue, measurementUnit, allowPartialProgress,
+    aggregationMode
+)
+
+fun HabitFrequency.toVersionEntity(habitId: String, id: String): HabitScheduleVersionEntity =
+    HabitScheduleVersionEntity(
+        id = id,
+        habitId = habitId,
+        frequencyType = type.name,
+        weekdaysCsv = weekdays.joinToString(",") { it.name },
+        timesPerWeek = timesPerWeek,
+        intervalDays = intervalDays,
+        monthlyDaysCsv = monthlyDays.sorted().joinToString(","),
+        startDate = startDate?.toString(),
+        endDate = endDate?.toString(),
+        timezone = timezone,
+        active = active,
+        needsReview = needsReview,
+        originalText = originalText,
+        effectiveFrom = effectiveFrom?.toString(),
+        effectiveTo = effectiveTo?.toString()
+    )
+
+fun HabitScheduleVersionEntity.toDomain(): HabitFrequency = HabitFrequency(
+    type = runCatching { HabitFrequencyType.valueOf(frequencyType) }.getOrDefault(HabitFrequencyType.LEGACY_REVIEW),
+    weekdays = weekdaysCsv.csvValues().mapNotNull { runCatching { DayOfWeek.valueOf(it) }.getOrNull() }.toSet(),
+    timesPerWeek = timesPerWeek,
+    intervalDays = intervalDays,
+    monthlyDays = monthlyDaysCsv.csvValues().mapNotNull(String::toIntOrNull).toSet(),
+    startDate = startDate.toLocalDateOrNull(),
+    endDate = endDate.toLocalDateOrNull(),
+    timezone = timezone,
+    active = active,
+    needsReview = needsReview,
+    originalText = originalText,
+    effectiveFrom = effectiveFrom.toLocalDateOrNull(),
+    effectiveTo = effectiveTo.toLocalDateOrNull()
+)
+
+private fun HabitEntity.structuredFrequency(): HabitFrequency {
+    val type = runCatching { HabitFrequencyType.valueOf(frequencyType) }.getOrDefault(HabitFrequencyType.LEGACY_REVIEW)
+    if (type == HabitFrequencyType.LEGACY_REVIEW) return HabitFrequency.fromLegacy(frequencyOriginal.ifBlank { frequency }, scheduleTimezone)
+        .copy(needsReview = true)
+    return HabitFrequency(
+        type = type,
+        weekdays = weekdaysCsv.csvValues().mapNotNull { runCatching { DayOfWeek.valueOf(it) }.getOrNull() }.toSet(),
+        timesPerWeek = timesPerWeek,
+        intervalDays = intervalDays,
+        monthlyDays = monthlyDaysCsv.csvValues().mapNotNull(String::toIntOrNull).toSet(),
+        startDate = scheduleStartDate.toLocalDateOrNull(),
+        endDate = scheduleEndDate.toLocalDateOrNull(),
+        timezone = scheduleTimezone,
+        active = scheduleActive,
+        needsReview = frequencyNeedsReview,
+        originalText = frequencyOriginal.ifBlank { frequency },
+        effectiveFrom = scheduleEffectiveFrom.toLocalDateOrNull()
+    )
+}
+
+private fun String.csvValues() = split(",").map(String::trim).filter(String::isNotBlank)
+private fun String?.toLocalDateOrNull() = this?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
 
 fun HabitEventEntity.toDomain() = HabitEvent(
     id = id,
@@ -104,10 +237,29 @@ fun HabitEventEntity.toDomain() = HabitEvent(
     status = status.toHabitStatus(),
     timestamp = timestamp,
     note = note,
-    synced = synced
+    synced = synced,
+    value = value,
+    normalizedValue = normalizedValue,
+    unit = unit,
+    aggregationMode = aggregationMode?.let { runCatching { AggregationMode.valueOf(it) }.getOrNull() },
+    idempotencyKey = idempotencyKey,
+    source = source
 )
 
-fun HabitEvent.toEntity() = HabitEventEntity(id, habitId, habitName, status.name, timestamp, note, synced)
+fun HabitEvent.toEntity() = HabitEventEntity(
+    id, habitId, habitName, status.name, timestamp, note, synced, value, normalizedValue,
+    unit, aggregationMode?.name, idempotencyKey, source
+)
+
+fun HabitEvent.toSyncDto() = HabitEventSyncDto(
+    id, habitId, habitName, status.name, timestamp, note, value, normalizedValue, unit,
+    aggregationMode?.name, idempotencyKey, source
+)
+
+fun HabitEventSyncDto.toEntity() = HabitEventEntity(
+    id, habitId, habitName, status, timestamp, note, true, value, normalizedValue, unit,
+    aggregationMode, idempotencyKey, source
+)
 
 fun GeoEventDto.toEntity() = HabitEventEntity(
     id = id.ifBlank { "${deviceId.orEmpty()}-${recordedAt.orEmpty()}" },
@@ -116,7 +268,13 @@ fun GeoEventDto.toEntity() = HabitEventEntity(
     status = metadata?.get("status") ?: notes?.substringAfter("status=", "Completed")?.substringBefore(";") ?: "Completed",
     timestamp = recordedAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: System.currentTimeMillis(),
     note = notes.orEmpty(),
-    synced = true
+    synced = true,
+    value = null,
+    normalizedValue = null,
+    unit = null,
+    aggregationMode = null,
+    idempotencyKey = null,
+    source = "REMOTE"
 )
 
 fun AchievementEntity.toDomain() = Achievement(id, title, description, requirement, unlocked, xp)
@@ -172,7 +330,8 @@ fun VoiceCommandResponse.toDomain() = VoiceCommandResult(
             habitName = it.habitName,
             status = it.status.toHabitStatus(),
             quantity = it.quantity,
-            unit = it.unit
+            unit = it.unit,
+            idempotencyKey = UUID.randomUUID().toString()
         )
     },
     plan = plan?.let {
@@ -261,6 +420,7 @@ private fun VoiceConversationActionDto.toVoiceEventResult(): VoiceEventResult? {
         quantity = payload["duration_minutes"]?.asPayloadString()?.toDoubleOrNull()
             ?: payload["quantity"]?.asPayloadString()?.toDoubleOrNull(),
         unit = payload["unit"]?.asPayloadString() ?: payload["duration_unit"]?.asPayloadString()
+        ,idempotencyKey = payload["idempotency_key"]?.asPayloadString() ?: UUID.randomUUID().toString()
     )
 }
 

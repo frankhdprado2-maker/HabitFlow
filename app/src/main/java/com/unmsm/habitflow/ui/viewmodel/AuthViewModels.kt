@@ -34,7 +34,8 @@ class SessionViewModel @Inject constructor(
 
 @HiltViewModel
 class LoginViewModel @Inject constructor(
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val habitRepository: HabitRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(LoginUiState(loggedIn = authRepository.isLoggedIn()))
     val state: StateFlow<LoginUiState> = _state
@@ -128,6 +129,9 @@ class LoginViewModel @Inject constructor(
         _state.update { it.copy(googleState = GoogleLoginState.LoadingProfile, error = null) }
         when (val profile = authRepository.me()) {
             is AppResult.Success -> {
+                // Remote habit sync is best-effort. Authentication and the local offline
+                // experience must keep working while an older backend is still deployed.
+                habitRepository.pullRemoteData()
                 _state.update {
                     it.copy(
                         loading = false,

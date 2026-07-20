@@ -8,6 +8,7 @@ import com.unmsm.habitflow.domain.model.Habit
 import com.unmsm.habitflow.domain.model.HabitEvent
 import com.unmsm.habitflow.domain.model.PlanRecommendation
 import com.unmsm.habitflow.domain.model.User
+import com.unmsm.habitflow.domain.habit.HabitHeatmap
 import com.unmsm.habitflow.voice.VoiceErrorType
 
 sealed interface GoogleLoginState {
@@ -60,7 +61,9 @@ data class HabitDetailUiState(
     val habit: Habit? = null,
     val events: List<HabitEvent> = emptyList(),
     val note: String = "",
-    val completionPercent: Int = 0
+    val progressValue: String = "",
+    val completionPercent: Int = 0,
+    val heatmap: HabitHeatmap = HabitHeatmap()
 )
 
 data class StatsUiState(
@@ -114,7 +117,8 @@ data class EditProfileUiState(
 
 data class SettingsUiState(
     val settings: SettingsState = SettingsState(),
-    val loggingOut: Boolean = false
+    val loggingOut: Boolean = false,
+    val logoutError: String? = null
 )
 
 data class ThemeUiState(
@@ -178,9 +182,12 @@ data class InterpretedHabitUi(
 
 sealed interface VoiceAssistantPhase {
     data object Idle : VoiceAssistantPhase
+    data object ModelNotPrepared : VoiceAssistantPhase
+    data object PreparingModel : VoiceAssistantPhase
+    data object Ready : VoiceAssistantPhase
     data object RequestingPermission : VoiceAssistantPhase
-    data object Listening : VoiceAssistantPhase
-    data class PartialResult(val text: String) : VoiceAssistantPhase
+    data class Recording(val durationMillis: Long, val audioLevel: Float) : VoiceAssistantPhase
+    data object Transcribing : VoiceAssistantPhase
     data object Processing : VoiceAssistantPhase
     data object AwaitingConfirmation : VoiceAssistantPhase
     data object Speaking : VoiceAssistantPhase
@@ -193,6 +200,8 @@ data class VoiceUiState(
     val listening: Boolean = false,
     val recording: Boolean = false,
     val transcribing: Boolean = false,
+    val recordingDurationMillis: Long = 0,
+    val audioLevel: Float = 0f,
     val transcript: String = "",
     val partialTranscript: String = "",
     val response: String = "",
@@ -215,6 +224,19 @@ data class ManualHabitUiState(
     val name: String = "",
     val category: String = "General",
     val frequency: String = "Diario",
+    val frequencyType: String = "DAILY",
+    val weekdays: Set<String> = emptySet(),
+    val timesPerWeek: String = "3",
+    val intervalDays: String = "2",
+    val monthlyDays: String = "1",
+    val startDate: String = "",
+    val endDate: String = "",
+    val timezone: String = "America/Lima",
+    val measurementType: String = "BOOLEAN",
+    val targetValue: String = "1",
+    val measurementUnit: String = "",
+    val allowPartialProgress: Boolean = false,
+    val aggregationMode: String = "ADD",
     val reminderTime: String = "Sin hora",
     val loading: Boolean = false,
     val saved: Boolean = false,
