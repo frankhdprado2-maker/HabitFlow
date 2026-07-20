@@ -117,7 +117,8 @@ data class EditProfileUiState(
 
 data class SettingsUiState(
     val settings: SettingsState = SettingsState(),
-    val loggingOut: Boolean = false
+    val loggingOut: Boolean = false,
+    val logoutError: String? = null
 )
 
 data class ThemeUiState(

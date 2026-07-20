@@ -13,6 +13,7 @@ from app.projects.c21200065.infra.clients.storage import storage_client
 from app.projects.c21200065.infra.repositories.file_orm_repo import FileORMRepository
 from app.projects.c21200065.infra.repositories.geo_event_orm_repo import GeoEventORMRepository
 from app.projects.c21200065.infra.repositories.geo_event_repo import GeoEventRepository
+from app.projects.c21200065.infra.repositories.habit_repo import HabitRepository
 from app.projects.c21200065.infra.repositories.auth_orm_repo import RefreshTokenORMRepository, UserORMRepository
 from app.projects.c21200065.infra.settings import settings
 
@@ -43,6 +44,10 @@ def get_geo_event_orm_repo(session: AsyncSession = Depends(get_db_session)) -> G
 
 def get_storage_service(session: AsyncSession = Depends(get_db_session)) -> StorageService:
     return StorageService(FileORMRepository(session), storage_client)
+
+
+def get_habit_repo(session: AsyncSession = Depends(get_db_session)) -> HabitRepository:
+    return HabitRepository(session)
 
 
 def get_current_user(token=Depends(security)):

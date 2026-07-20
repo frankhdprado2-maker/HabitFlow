@@ -690,6 +690,9 @@ fun SettingsScreen(
                 enabled = !state.loggingOut
             )
         }
+        state.logoutError?.let { message ->
+            item { Text(message, color = MaterialTheme.colorScheme.error) }
+        }
         item {
             TextButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)

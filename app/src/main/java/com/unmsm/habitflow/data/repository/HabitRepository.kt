@@ -9,9 +9,9 @@ import com.unmsm.habitflow.data.local.dao.NotificationDao
 import com.unmsm.habitflow.data.local.dao.PlanRecommendationDao
 import com.unmsm.habitflow.data.local.dao.UserProfileDao
 import com.unmsm.habitflow.data.remote.api.HabitEventApi
-import com.unmsm.habitflow.data.remote.dto.GeoEventRequest
 import com.unmsm.habitflow.data.toDomain
 import com.unmsm.habitflow.data.toEntity
+import com.unmsm.habitflow.data.toSyncDto
 import com.unmsm.habitflow.data.toVersionEntity
 import com.unmsm.habitflow.domain.model.Achievement
 import com.unmsm.habitflow.domain.model.AppNotification
@@ -208,6 +208,7 @@ class HabitRepository @Inject constructor(
         habitDao.upsert(habit.toEntity())
         habitScheduleDao.upsert(schedule.toVersionEntity(habitId, UUID.randomUUID().toString()))
         reminderScheduler.schedule(habit)
+        syncHabit(habit)
     }
 
     suspend fun updateHabitSchedule(habitId: String, schedule: HabitFrequency, effectiveFrom: LocalDate): AppResult<Unit> =
@@ -437,37 +438,56 @@ class HabitRepository @Inject constructor(
 
     suspend fun syncEvent(event: HabitEvent): AppResult<HabitEvent> =
         runNetwork {
-            eventApi.create(
-                GeoEventRequest(
-                    eventType = event.habitName,
-                    deviceId = event.habitId,
-                    notes = "status=${event.status.name}; note=${event.note}",
-                    metadata = mapOf(
-                        "habit_id" to event.habitId,
-                        "habit_name" to event.habitName,
-                        "status" to event.status.name,
-                        "platform" to "android",
-                        "app_version" to "1.0"
-                    )
-                )
-            )
+            eventApi.upsertEvent(event.id, event.toSyncDto())
             eventDao.markSynced(event.id)
             event.copy(synced = true)
         }
 
+    suspend fun syncHabit(habit: Habit): AppResult<Habit> =
+        runNetwork {
+            eventApi.upsertHabit(habit.id, habit.toSyncDto())
+            habit
+        }
+
     suspend fun syncPending() {
+        habitDao.activeOnce().forEach { entity ->
+            syncHabit(entity.toDomain())
+        }
         eventDao.unsynced().forEach { entity ->
             syncEvent(entity.toDomain())
         }
     }
 
-    suspend fun pullRemoteHistory(): AppResult<Unit> =
+    suspend fun syncBeforeLogout(): AppResult<Unit> {
+        for (habit in habitDao.activeOnce().map { it.toDomain() }) {
+            val result = syncHabit(habit)
+            if (result is AppResult.Error) return AppResult.Error(result.message, result.cause)
+        }
+        for (event in eventDao.unsynced().map { it.toDomain() }) {
+            val result = syncEvent(event)
+            if (result is AppResult.Error) return AppResult.Error(result.message, result.cause)
+        }
+        return AppResult.Success(Unit)
+    }
+
+    suspend fun pullRemoteData(): AppResult<Unit> =
         runNetwork {
-            val remoteEvents = eventApi.list().map { it.toEntity() }
+            val remoteHabits = eventApi.listHabits().map { it.toEntity() }
+            habitDao.upsertAll(remoteHabits)
+            remoteHabits.forEach { entity ->
+                val habit = entity.toDomain()
+                habitScheduleDao.upsert(
+                    habit.schedule.toVersionEntity(habit.id, "${habit.id}-remote-current")
+                )
+                reminderScheduler.schedule(habit)
+            }
+            val remoteEvents = eventApi.listEvents().map { it.toEntity() }
             eventDao.upsertAll(remoteEvents)
             val zoneId = userZoneId()
             remoteEvents.map { it.habitId }.distinct().forEach { recalculateStreak(it, zoneId) }
         }
+
+    suspend fun pullRemoteHistory(): AppResult<Unit> = pullRemoteData()
 }
 
 private fun demoHabits(): List<Habit> = listOf(

@@ -48,3 +48,5 @@ ggml-*.bin
 *.ogg
 /.codex_tmp/
 /.kotlin/
+/docs/CUENTAS_PRUEBA.md
+/docs/CUENTAS_PRUEBA.json

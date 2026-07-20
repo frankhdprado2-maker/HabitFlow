@@ -34,7 +34,8 @@ class SessionViewModel @Inject constructor(
 
 @HiltViewModel
 class LoginViewModel @Inject constructor(
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val habitRepository: HabitRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(LoginUiState(loggedIn = authRepository.isLoggedIn()))
     val state: StateFlow<LoginUiState> = _state
@@ -128,6 +129,19 @@ class LoginViewModel @Inject constructor(
         _state.update { it.copy(googleState = GoogleLoginState.LoadingProfile, error = null) }
         when (val profile = authRepository.me()) {
             is AppResult.Success -> {
+                val remoteData = habitRepository.pullRemoteData()
+                if (remoteData is AppResult.Error) {
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            googleState = GoogleLoginState.Error(remoteData.message),
+                            loggedIn = false,
+                            needsProfile = false,
+                            error = "No pudimos recuperar tus hábitos. Inténtalo nuevamente."
+                        )
+                    }
+                    return
+                }
                 _state.update {
                     it.copy(
                         loading = false,

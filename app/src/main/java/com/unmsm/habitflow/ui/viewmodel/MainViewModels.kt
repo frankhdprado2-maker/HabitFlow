@@ -416,11 +416,13 @@ class EditProfileViewModel @Inject constructor(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val habitRepository: HabitRepository
 ) : ViewModel() {
     private val loggingOut = MutableStateFlow(false)
-    val state: StateFlow<SettingsUiState> = combine(settingsRepository.settings, loggingOut) { settings, isLoggingOut ->
-        SettingsUiState(settings, isLoggingOut)
+    private val logoutError = MutableStateFlow<String?>(null)
+    val state: StateFlow<SettingsUiState> = combine(settingsRepository.settings, loggingOut, logoutError) { settings, isLoggingOut, error ->
+        SettingsUiState(settings, isLoggingOut, error)
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
@@ -434,7 +436,15 @@ class SettingsViewModel @Inject constructor(
     fun setAccentColor(value: String) = viewModelScope.launch { settingsRepository.setAccentColor(value) }
     fun logout(onComplete: () -> Unit) = viewModelScope.launch {
         loggingOut.value = true
-        authRepository.logout()
+        logoutError.value = null
+        when (val sync = habitRepository.syncBeforeLogout()) {
+            is AppResult.Success -> authRepository.logout()
+            is AppResult.Error -> {
+                logoutError.value = "No se cerró la sesión porque hay datos pendientes de sincronizar. Revisa tu conexión."
+                loggingOut.value = false
+                return@launch
+            }
+        }
         loggingOut.value = false
         onComplete()
     }

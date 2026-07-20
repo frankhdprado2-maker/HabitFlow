@@ -9,6 +9,8 @@ import com.unmsm.habitflow.data.local.entity.NotificationEntity
 import com.unmsm.habitflow.data.local.entity.PlanRecommendationEntity
 import com.unmsm.habitflow.data.local.entity.UserProfileEntity
 import com.unmsm.habitflow.data.remote.dto.GeoEventDto
+import com.unmsm.habitflow.data.remote.dto.HabitEventSyncDto
+import com.unmsm.habitflow.data.remote.dto.HabitSyncDto
 import com.unmsm.habitflow.data.remote.dto.HabitInterpretationResponse
 import com.unmsm.habitflow.data.remote.dto.UserDto
 import com.unmsm.habitflow.data.remote.dto.VoiceCommandResponse
@@ -151,6 +153,25 @@ fun Habit.toEntity() = HabitEntity(
     aggregationMode = measurement.aggregationMode.name
 )
 
+fun Habit.toSyncDto() = toEntity().let { entity ->
+    HabitSyncDto(
+        entity.id, entity.name, entity.icon, entity.frequency, entity.reminderTime, entity.category,
+        entity.isActive, entity.frequencyType, entity.weekdaysCsv, entity.timesPerWeek,
+        entity.intervalDays, entity.monthlyDaysCsv, entity.scheduleStartDate, entity.scheduleEndDate,
+        entity.scheduleTimezone, entity.scheduleActive, entity.frequencyNeedsReview,
+        entity.frequencyOriginal, entity.scheduleEffectiveFrom, entity.measurementType,
+        entity.targetValue, entity.measurementUnit, entity.allowPartialProgress, entity.aggregationMode
+    )
+}
+
+fun HabitSyncDto.toEntity() = HabitEntity(
+    id, name, icon, frequency, reminderTime, category, isActive, 0, 0, frequencyType,
+    weekdaysCsv, timesPerWeek, intervalDays, monthlyDaysCsv, scheduleStartDate, scheduleEndDate,
+    scheduleTimezone, scheduleActive, frequencyNeedsReview, frequencyOriginal,
+    scheduleEffectiveFrom, measurementType, targetValue, measurementUnit, allowPartialProgress,
+    aggregationMode
+)
+
 fun HabitFrequency.toVersionEntity(habitId: String, id: String): HabitScheduleVersionEntity =
     HabitScheduleVersionEntity(
         id = id,
@@ -228,6 +249,16 @@ fun HabitEventEntity.toDomain() = HabitEvent(
 fun HabitEvent.toEntity() = HabitEventEntity(
     id, habitId, habitName, status.name, timestamp, note, synced, value, normalizedValue,
     unit, aggregationMode?.name, idempotencyKey, source
+)
+
+fun HabitEvent.toSyncDto() = HabitEventSyncDto(
+    id, habitId, habitName, status.name, timestamp, note, value, normalizedValue, unit,
+    aggregationMode?.name, idempotencyKey, source
+)
+
+fun HabitEventSyncDto.toEntity() = HabitEventEntity(
+    id, habitId, habitName, status, timestamp, note, true, value, normalizedValue, unit,
+    aggregationMode, idempotencyKey, source
 )
 
 fun GeoEventDto.toEntity() = HabitEventEntity(

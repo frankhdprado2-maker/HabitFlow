@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -157,3 +157,49 @@ class GeoEventResponse(BaseModel):
     device_model: str | None = None
     recorded_at: datetime
     created_at: datetime
+
+
+class HabitSync(BaseModel):
+    id: str
+    name: str
+    icon: str
+    frequency: str
+    reminder_time: str
+    category: str
+    is_active: bool = True
+    frequency_type: str
+    weekdays_csv: str = ""
+    times_per_week: int | None = None
+    interval_days: int | None = None
+    monthly_days_csv: str = ""
+    schedule_start_date: str | None = None
+    schedule_end_date: str | None = None
+    schedule_timezone: str = "America/Lima"
+    schedule_active: bool = True
+    frequency_needs_review: bool = False
+    frequency_original: str = ""
+    schedule_effective_from: str | None = None
+    measurement_type: str = "BOOLEAN"
+    target_value: float = 1.0
+    measurement_unit: str = ""
+    allow_partial_progress: bool = False
+    aggregation_mode: str = "ADD"
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class HabitEventSync(BaseModel):
+    id: str
+    habit_id: str
+    habit_name: str
+    status: str
+    timestamp: int
+    note: str = ""
+    value: float | None = None
+    normalized_value: float | None = None
+    unit: str | None = None
+    aggregation_mode: str | None = None
+    idempotency_key: str | None = None
+    source: str = "MANUAL"
+
+    model_config = ConfigDict(from_attributes=True)
