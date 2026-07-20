@@ -635,6 +635,10 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch { voiceController.cancelListening() }
     }
 
+    fun handleAppBackgrounded() {
+        viewModelScope.launch { voiceController.handleAppBackgrounded() }
+    }
+
     private fun startRecording() {
         viewModelScope.launch { voiceController.startRecording() }
     }

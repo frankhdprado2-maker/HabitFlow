@@ -23,6 +23,14 @@ class VoiceController @Inject constructor(
     suspend fun stopRecordingAndTranscribe(): Result<String> = transcriber.stopAndTranscribe()
     suspend fun cancelListening() = transcriber.cancel()
 
+    suspend fun handleAppBackgrounded() {
+        when (backgroundVoiceAction(state.value)) {
+            BackgroundVoiceAction.StopAndTranscribe -> stopRecordingAndTranscribe()
+            BackgroundVoiceAction.KeepTranscribing,
+            BackgroundVoiceAction.None -> Unit
+        }
+    }
+
     fun speak(text: String) {
         val clean = text.trim()
         if (clean.isBlank()) return
@@ -50,4 +58,16 @@ class VoiceController @Inject constructor(
         runCatching { tts?.shutdown() }
         tts = null
     }
+}
+
+internal enum class BackgroundVoiceAction {
+    StopAndTranscribe,
+    KeepTranscribing,
+    None
+}
+
+internal fun backgroundVoiceAction(state: WhisperState): BackgroundVoiceAction = when (state) {
+    is WhisperState.Recording -> BackgroundVoiceAction.StopAndTranscribe
+    is WhisperState.Processing -> BackgroundVoiceAction.KeepTranscribing
+    else -> BackgroundVoiceAction.None
 }

@@ -798,13 +798,15 @@ fun VoiceScreen(
         val lifecycle = lifecycleOwner?.lifecycle
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                viewModel.cancelListening()
+                viewModel.handleAppBackgrounded()
             }
         }
         lifecycle?.addObserver(observer)
         onDispose {
             lifecycle?.removeObserver(observer)
-            viewModel.cancelListening()
+            if (lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true) {
+                viewModel.cancelListening()
+            }
         }
     }
     val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
