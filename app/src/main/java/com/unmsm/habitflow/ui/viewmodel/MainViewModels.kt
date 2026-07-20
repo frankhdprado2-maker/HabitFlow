@@ -706,12 +706,24 @@ class VoiceViewModel @Inject constructor(
                     }
                 }
                 is AppResult.Error -> {
-                    val message = if (result.message.contains("conectar", ignoreCase = true)) {
-                        "La interpretación inteligente necesita conexión. Conservé tu texto para reintentar."
-                    } else {
-                        "No se pudo interpretar el hábito. ${result.message}"
+                    // The deterministic voice endpoint remains available when the external
+                    // interpretation provider is down or an older backend is still deployed.
+                    when (
+                        val fallback = voiceRepository.command(
+                            text = clean,
+                            habits = habits,
+                            recentEvents = habitRepository.recentEvents(),
+                            achievements = habitRepository.achievementsSnapshot(),
+                            categories = habits.map { it.category }.filter { it.isNotBlank() }.distinct(),
+                            conversationId = state.value.conversationId
+                        )
+                    ) {
+                        is AppResult.Success -> handleVoiceResult(fallback.data, localMode = false)
+                        is AppResult.Error -> handleVoiceResult(
+                            LocalVoiceCommandParser.parse(clean, habits),
+                            localMode = true
+                        )
                     }
-                    showError(message, VoiceErrorType.Network)
                 }
             }
         }

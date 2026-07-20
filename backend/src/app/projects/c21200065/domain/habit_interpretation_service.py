@@ -97,6 +97,170 @@ GenerateJson = Callable[[str], str]
 Clock = Callable[[tzinfo], date]
 
 
+class RuleBasedHabitInterpreter:
+    """Small deterministic fallback used when the external model is unavailable."""
+
+    _actions = (
+        (r"\b(?:lei|leer|leo|leido)\b", "Leer"),
+        (r"\b(?:corri|correr|corro)\b", "Correr"),
+        (r"\b(?:camine|caminar|camino)\b", "Caminar"),
+        (r"\b(?:estudie|estudiar|estudio)\b", "Estudiar"),
+        (r"\b(?:medite|meditar|medito)\b", "Meditar"),
+        (r"\b(?:bebi|beber|tome|tomar)\b(?:\s+agua)?", "Tomar agua"),
+        (r"\b(?:dormi|dormir|duermo)\b", "Dormir"),
+        (r"\b(?:entrene|entrenar|ejercicio)\b", "Hacer ejercicio"),
+    )
+    _number_words = {
+        "un": 1.0,
+        "una": 1.0,
+        "uno": 1.0,
+        "dos": 2.0,
+        "tres": 3.0,
+        "cuatro": 4.0,
+        "cinco": 5.0,
+        "seis": 6.0,
+        "siete": 7.0,
+        "ocho": 8.0,
+        "nueve": 9.0,
+        "diez": 10.0,
+        "quince": 15.0,
+        "veinte": 20.0,
+        "treinta": 30.0,
+        "cuarenta": 40.0,
+        "cincuenta": 50.0,
+        "sesenta": 60.0,
+    }
+    _units = (
+        "kilometros",
+        "kilometro",
+        "km",
+        "minutos",
+        "minuto",
+        "horas",
+        "hora",
+        "paginas",
+        "pagina",
+        "libros",
+        "libro",
+        "vasos",
+        "vaso",
+        "litros",
+        "litro",
+    )
+
+    def __init__(self, clock: Clock | None = None) -> None:
+        self.clock = clock or (lambda tz: datetime.now(tz).date())
+
+    async def interpret(
+        self,
+        text: str,
+        timezone: str = "America/Lima",
+    ) -> HabitInterpretationResponse:
+        request = HabitInterpretationRequest(text=text, timezone=timezone)
+        clean = self._normalize(request.text)
+        tz = self._resolve_timezone(request.timezone)
+        current_date = self.clock(tz)
+        target_date = (
+            current_date - timedelta(days=1)
+            if "ayer" in clean
+            else current_date + timedelta(days=1)
+            if "manana" in clean
+            else current_date
+        )
+
+        matches: list[tuple[int, int, str]] = []
+        for pattern, name in self._actions:
+            for match in re.finditer(pattern, clean):
+                matches.append((match.start(), match.end(), name))
+        matches.sort(key=lambda item: item[0])
+
+        habits: list[InterpretedHabit] = []
+        seen: set[str] = set()
+        for index, (start, _, name) in enumerate(matches):
+            if name in seen:
+                continue
+            end = matches[index + 1][0] if index + 1 < len(matches) else len(clean)
+            segment = clean[start:end]
+            quantity, unit = self._quantity(segment)
+            action: Action = (
+                "planned"
+                if any(word in segment for word in ("manana", "planeo", "voy a"))
+                else "created"
+                if any(word in clean for word in ("quiero crear", "nuevo habito"))
+                else "completed"
+            )
+            habits.append(
+                InterpretedHabit(
+                    name=name,
+                    action=action,
+                    quantity=quantity,
+                    unit=unit,
+                    date=target_date,
+                )
+            )
+            seen.add(name)
+
+        if not habits:
+            return HabitInterpretationResponse(
+                intent="unknown",
+                habits=[],
+                confidence=0.0,
+                needs_confirmation=True,
+                confirmation_message="No pude identificar un hábito. Revisa el texto.",
+            )
+
+        intent: Intent = (
+            "plan_habit"
+            if all(habit.action == "planned" for habit in habits)
+            else "create_habit"
+            if all(habit.action == "created" for habit in habits)
+            else "register_habit"
+        )
+        message = (
+            "Revisa estos hábitos antes de guardarlos."
+            if len(habits) > 1
+            else "Revisa este hábito antes de guardarlo."
+        )
+        return HabitInterpretationResponse(
+            intent=intent,
+            habits=habits,
+            confidence=0.65,
+            needs_confirmation=True,
+            confirmation_message=message,
+        )
+
+    def _quantity(self, segment: str) -> tuple[float | None, str | None]:
+        units = "|".join(self._units)
+        match = re.search(rf"\b(\d+(?:[.,]\d+)?)\s*({units})?\b", segment)
+        if match:
+            return float(match.group(1).replace(",", ".")), match.group(2)
+        words = "|".join(self._number_words)
+        match = re.search(rf"\b({words})\s*({units})?\b", segment)
+        if match:
+            return self._number_words[match.group(1)], match.group(2)
+        return None, None
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        import unicodedata
+
+        decomposed = unicodedata.normalize("NFD", text.lower())
+        without_marks = "".join(
+            char for char in decomposed if unicodedata.category(char) != "Mn"
+        )
+        return re.sub(r"\s+", " ", without_marks).strip()
+
+    @staticmethod
+    def _resolve_timezone(timezone: str) -> tzinfo:
+        try:
+            return ZoneInfo(timezone)
+        except ZoneInfoNotFoundError:
+            try:
+                return ZoneInfo("America/Lima")
+            except ZoneInfoNotFoundError:
+                return fixed_timezone(timedelta(hours=-5), "America/Lima")
+
+
 class GeminiHabitInterpreter:
     def __init__(
         self,
